@@ -1,0 +1,55 @@
+# Arquivos sensíveis
+.env
+*.env
+.env.local
+.env.production
+secrets.toml
+.streamlit/secrets.toml
+
+# Cache e logs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+logs/
+cache/
+
+# Ambiente virtual
+venv/
+env/
+.venv/
+
+# Base de dados local (muito grande)
+db/
+*.sqlite3
+*.db
+
+# Arquivos temporários
+*.tmp
+requirements_temp.txt
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos específicos do projeto
+debug_map.png
+assistente_reg.log
+ingest.log
+ingestao_documentos.log
+
+# Dados sensíveis (manter dados de exemplo apenas)
+dados/curitiba/*.pdf
+dados/outros_documentos/
+
+# Arquivos temporários gerados
+0
+200
+float
+List[*

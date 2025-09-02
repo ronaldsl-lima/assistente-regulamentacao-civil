@@ -1,0 +1,10 @@
+{
+  "total_paginas": 101,
+  "total_tabelas": 109,
+  "tabelas_parametros": 45,
+  "tabelas_por_zona": {
+    "ZR-4": 3,
+    "ZT": 2,
+    "ZS-2": 1
+  }
+}

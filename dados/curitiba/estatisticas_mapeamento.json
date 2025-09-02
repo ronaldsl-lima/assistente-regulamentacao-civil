@@ -1,0 +1,226 @@
+{
+  "total_paginas": 101,
+  "quadros_processados": {
+    "EE": [
+      "I",
+      "II",
+      "III",
+      "IV",
+      "V"
+    ],
+    "ENC": [
+      "I",
+      "II",
+      "III",
+      "IV",
+      "V"
+    ],
+    "EMF": [
+      "VI"
+    ],
+    "EAC": [
+      "VII",
+      "VIII"
+    ],
+    "EMLV": [
+      "IX"
+    ],
+    "EACF": [
+      "X"
+    ],
+    "EACB": [
+      "XI"
+    ],
+    "ECO-1": [
+      "XII",
+      "XIII",
+      "XIV"
+    ],
+    "ECO-2": [
+      "XII",
+      "XIII",
+      "XIV"
+    ],
+    "ECO-3": [
+      "XII",
+      "XIII",
+      "XIV"
+    ],
+    "ECO-4": [
+      "XII",
+      "XIII",
+      "XIV"
+    ],
+    "ZC": [
+      "XV"
+    ],
+    "ZR1": [
+      "XVI",
+      "XVII"
+    ],
+    "ZR2": [
+      "XVIII",
+      "XIX"
+    ],
+    "ZR3": [
+      "XX"
+    ],
+    "ZR3-T": [
+      "XXI"
+    ],
+    "ZR-4": [
+      "XXII"
+    ],
+    "ZROC": [
+      "XXIII",
+      "XXIV"
+    ],
+    "ZROI": [
+      "XXIV"
+    ],
+    "ZUM-1": [
+      "XXV"
+    ],
+    "ZUM-2": [
+      "XXVI"
+    ],
+    "ZUM-3": [
+      "XXVII"
+    ],
+    "ZUMVP": [
+      "XXVIII"
+    ],
+    "ZSM": [
+      "XXIX"
+    ],
+    "ZSF": [
+      "XXX"
+    ],
+    "ZE": [
+      "XXXI"
+    ],
+    "ZM": [
+      "XXXII"
+    ],
+    "ZPS": [
+      "XXXIII"
+    ],
+    "ZH-1": [
+      "XXXIV",
+      "XXXV"
+    ],
+    "ZH-2": [
+      "XXXIV",
+      "XXXV"
+    ],
+    "ZCC": [
+      "XXXVI"
+    ],
+    "ZCSF": [
+      "XXXVIII"
+    ],
+    "ZCUM": [
+      "XXXVIII"
+    ],
+    "ZS-1": [
+      "XXXVII"
+    ],
+    "ZS-2": [
+      "XXXVII"
+    ],
+    "ZI": [
+      "XXXIX"
+    ],
+    "SEPE": [
+      "XLII"
+    ],
+    "SEHIS": [
+      "XL",
+      "XLI"
+    ]
+  },
+  "zonas_encontradas": {
+    "EE": 10,
+    "ENC": 10,
+    "EMF": 1,
+    "EAC": 2,
+    "EMLV": 2,
+    "EACF": 1,
+    "EACB": 1,
+    "ECO-1": 12,
+    "ECO-2": 12,
+    "ECO-3": 12,
+    "ECO-4": 12,
+    "ZC": 1,
+    "ZR1": 2,
+    "ZR2": 2,
+    "ZR3": 1,
+    "ZR3-T": 1,
+    "ZR-4": 1,
+    "ZROC": 3,
+    "ZROI": 2,
+    "ZUM-1": 1,
+    "ZUM-2": 1,
+    "ZUM-3": 1,
+    "ZUMVP": 1,
+    "ZSM": 1,
+    "ZSF": 1,
+    "ZE": 1,
+    "ZM": 1,
+    "ZPS": 1,
+    "ZH-1": 4,
+    "ZH-2": 4,
+    "ZCC": 1,
+    "ZCSF": 2,
+    "ZCUM": 2,
+    "ZS-1": 2,
+    "ZS-2": 2,
+    "ZI": 1,
+    "SEPE": 1,
+    "SEHIS": 2
+  },
+  "tabelas_por_quadro": {
+    "I": 4,
+    "II": 4,
+    "III": 4,
+    "IV": 4,
+    "V": 4,
+    "VI": 1,
+    "VII": 1,
+    "VIII": 1,
+    "IX": 2,
+    "X": 1,
+    "XI": 1,
+    "XII": 16,
+    "XIII": 16,
+    "XIV": 16,
+    "XV": 1,
+    "XVI": 1,
+    "XVII": 1,
+    "XVIII": 1,
+    "XIX": 1,
+    "XX": 1,
+    "XXI": 1,
+    "XXII": 1,
+    "XXIII": 1,
+    "XXIV": 4,
+    "XXV": 1,
+    "XXVI": 1,
+    "XXVII": 1,
+    "XXVIII": 1,
+    "XXIX": 1,
+    "XXX": 1,
+    "XXXI": 1,
+    "XXXII": 1,
+    "XXXIII": 1,
+    "XXXIV": 4,
+    "XXXV": 4,
+    "XXXVI": 1,
+    "XXXVIII": 4,
+    "XXXVII": 4,
+    "XXXIX": 1,
+    "XLII": 1,
+    "XL": 1,
+    "XLI": 1
+  }
+}
