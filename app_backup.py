@@ -678,7 +678,10 @@ class AnalysisEngine:
             
             if not documentos:
                 print(f"DEBUG - Busca falhou para zona: {zona}")
-                raise ValueError(f"Nenhum documento encontrado para a zona {zona}")
+                if not hasattr(self.vectorstore, 'available') or not self.vectorstore.available:
+                    raise ValueError(f"Base de dados não está disponível. Execute 'python ingest.py curitiba' para popular a base vetorial.")
+                else:
+                    raise ValueError(f"Nenhum documento encontrado para a zona {zona}. Verifique se a zona está correta ou se os dados foram processados.")
             
             # 5. Gerar relatório
             generator = ReportGenerator(resources["llm"])

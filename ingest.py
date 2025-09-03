@@ -1,7 +1,7 @@
 # ingest_melhorado.py - Versão Otimizada 2.0
 
 # Fix SQLite compatibility for ChromaDB - MUST be first
-import sqlite_fix
+import chroma_wrapper
 
 import os, argparse, re, json, logging
 from pathlib import Path
@@ -14,7 +14,7 @@ import pdfplumber
 import pandas as pd
 import spacy
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
+from chroma_wrapper import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.docstore.document import Document
 
