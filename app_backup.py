@@ -1,7 +1,7 @@
 # app_melhorado.py - Versão Otimizada 6.0
 
 # Fix SQLite compatibility for ChromaDB - MUST be before any other imports
-import sqlite_fix
+import chroma_wrapper
 
 import os, asyncio, streamlit as st, re, json, time, pathlib, logging
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +13,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import GoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
-from langchain_community.vectorstores import Chroma
+from chroma_wrapper import Chroma
 from langchain.schema import Document
 import pypdf
 import pandas as pd

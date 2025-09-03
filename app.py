@@ -1,5 +1,5 @@
 # Fix SQLite compatibility for ChromaDB - MUST be first
-import sqlite_fix
+import chroma_wrapper
 
 import os, re, json, logging, streamlit as st
 from typing import Dict, List, Optional, Any
@@ -9,7 +9,7 @@ from langchain.schema import Document
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import GoogleGenerativeAI
 from langchain.chains.question_answering import load_qa_chain
-from langchain_community.vectorstores import Chroma
+from chroma_wrapper import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # Importa as classes do arquivo de backup
