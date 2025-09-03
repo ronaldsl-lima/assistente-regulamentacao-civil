@@ -1,3 +1,6 @@
+# Fix SQLite compatibility for ChromaDB - MUST be first
+import sqlite_fix
+
 import os, re, json, logging, streamlit as st
 from typing import Dict, List, Optional, Any
 from datetime import datetime

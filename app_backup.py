@@ -1,6 +1,9 @@
 # app_melhorado.py - Versão Otimizada 6.0
 
-import os, sys, asyncio, streamlit as st, re, json, time, pathlib, logging
+# Fix SQLite compatibility for ChromaDB - MUST be before any other imports
+import sqlite_fix
+
+import os, asyncio, streamlit as st, re, json, time, pathlib, logging
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Dict, List, Optional, Tuple, Any

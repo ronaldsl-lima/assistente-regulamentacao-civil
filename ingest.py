@@ -1,5 +1,8 @@
 # ingest_melhorado.py - Versão Otimizada 2.0
 
+# Fix SQLite compatibility for ChromaDB - MUST be first
+import sqlite_fix
+
 import os, argparse, re, json, logging
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
