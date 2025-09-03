@@ -1,4 +1,5 @@
-# Fix SQLite compatibility for ChromaDB - MUST be first
+# Fix SQLite compatibility for ChromaDB - MUST be first  
+# Forçar reload completo dos dados - v2.0
 import chroma_wrapper
 
 import os, re, json, logging, streamlit as st
