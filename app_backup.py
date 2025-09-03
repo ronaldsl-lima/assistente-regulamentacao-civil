@@ -285,16 +285,36 @@ class DocumentRetriever:
     
     def search(self, zona: str, query_terms: List[str]) -> List[Document]:
         """Busca híbrida otimizada"""
-        # Normaliza a zona usando o mapeamento
-        try:
-            from zona_mapping import normalizar_zona
-            zona_normalizada = normalizar_zona(zona)
-            print(f"Busca de documentos: '{zona}' -> normalizada: '{zona_normalizada}'")
-        except ImportError:
-            zona_normalizada = zona
+        print(f"DEBUG - Iniciando search() para zona: '{zona}'")
         
-        zona_limpa = zona_normalizada.upper().replace(" ", "-")
-        print(f"DEBUG DocumentRetriever - Zona limpa para busca: '{zona_limpa}'")
+        # Garante que as variáveis são sempre definidas
+        zona_normalizada = zona  # Valor padrão seguro
+        zona_limpa = zona.upper().replace(" ", "-")  # Valor padrão seguro
+        
+        try:
+            # Normaliza a zona usando o mapeamento
+            print(f"DEBUG - zona_normalizada inicializada: '{zona_normalizada}'")
+            
+            try:
+                from zona_mapping import normalizar_zona
+                zona_normalizada = normalizar_zona(zona)
+                print(f"DEBUG - Busca de documentos: '{zona}' -> normalizada: '{zona_normalizada}'")
+            except ImportError:
+                print(f"DEBUG - zona_mapping não encontrado, usando zona original: '{zona}'")
+                zona_normalizada = zona
+            except Exception as e:
+                print(f"DEBUG - Erro ao normalizar zona: {e}, usando zona original: '{zona}'")
+                zona_normalizada = zona
+            
+            print(f"DEBUG - Valor final de zona_normalizada: '{zona_normalizada}'")
+            zona_limpa = zona_normalizada.upper().replace(" ", "-")
+            print(f"DEBUG DocumentRetriever - Zona limpa para busca: '{zona_limpa}'")
+            
+        except Exception as e:
+            print(f"DEBUG - Erro crítico na normalização: {e}")
+            # Garante valores seguros mesmo em caso de erro
+            zona_normalizada = zona
+            zona_limpa = zona.upper().replace(" ", "-")
         documentos = []
         
         # Estratégia 1: Busca por filtros
