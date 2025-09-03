@@ -682,8 +682,26 @@ class AnalysisEngine:
             if not documentos:
                 print(f"DEBUG - Busca falhou para zona: {zona}")
                 vectorstore = resources["vectorstore"]
+                
+                # Check if vectorstore is completely unavailable (neither ChromaDB nor fallback)
                 if not hasattr(vectorstore, 'available') or not vectorstore.available:
-                    raise ValueError(f"Base de dados não está disponível. Execute 'python ingest.py curitiba' para popular a base vetorial.")
+                    raise ValueError(f"Base de dados não está disponível. Sistema de fallback também não foi carregado.")
+                
+                # If vectorstore is available but no documents found, provide helpful message
+                if hasattr(vectorstore, 'fallback_retriever') and vectorstore.fallback_retriever:
+                    print("DEBUG - Using fallback retriever, checking available zones...")
+                    # Get a sample of available zones from fallback data
+                    sample_docs = vectorstore.fallback_retriever.get(limit=10)
+                    available_zones = set()
+                    for metadata in sample_docs.get('metadatas', []):
+                        if 'zona_especifica' in metadata and metadata['zona_especifica']:
+                            available_zones.add(metadata['zona_especifica'])
+                    
+                    if available_zones:
+                        zones_str = ', '.join(sorted(available_zones))
+                        raise ValueError(f"Nenhum documento encontrado para a zona {zona}. Zonas disponíveis no sistema: {zones_str}")
+                    else:
+                        raise ValueError(f"Nenhum documento encontrado para a zona {zona}. Sistema funcionando mas sem dados de zona.")
                 else:
                     raise ValueError(f"Nenhum documento encontrado para a zona {zona}. Verifique se a zona está correta ou se os dados foram processados.")
             

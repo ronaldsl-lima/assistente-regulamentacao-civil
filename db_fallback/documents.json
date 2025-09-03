@@ -1,0 +1,31 @@
+[
+  {
+    "content": "\n            ZONA CENTRO CÍVICO (ZCC.4)\n            \n            PARÂMETROS URBANÍSTICOS:\n            - Taxa de Ocupação: máximo 70%\n            - Coeficiente de Aproveitamento: máximo 4,0\n            - Altura da Edificação: máximo 12 pavimentos ou 36 metros\n            - Recuo Frontal: mínimo 5,0 metros\n            - Recuos Laterais: mínimo 3,0 metros\n            - Recuo de Fundos: mínimo 3,0 metros  \n            - Área Permeável: mínimo 15%\n            ",
+    "metadata": {
+      "source": "lei_municipal",
+      "zona_especifica": "ZCC.4",
+      "zonas_mencionadas": [
+        "ZCC",
+        "ZCC.4"
+      ],
+      "tipo_conteudo": "parametros_urbanisticos",
+      "contem_tabela": true
+    }
+  },
+  {
+    "content": "\n            A Zona Centro Cívico subdivide-se em ZCC.1, ZCC.2, ZCC.3 e ZCC.4.\n            \n            Na ZCC.4 são permitidos os seguintes usos:\n            - Residencial multifamiliar\n            - Comercial de grande porte\n            - Serviços especializados\n            - Institucionais\n            \n            As edificações na ZCC.4 devem atender aos parâmetros específicos\n            estabelecidos na tabela de parâmetros urbanísticos.\n            ",
+    "metadata": {
+      "source": "lei_municipal",
+      "zona_especifica": "ZCC.4",
+      "zonas_mencionadas": [
+        "ZCC",
+        "ZCC.4",
+        "ZCC.1",
+        "ZCC.2",
+        "ZCC.3"
+      ],
+      "tipo_conteudo": "usos_permitidos",
+      "contem_tabela": false
+    }
+  }
+]
