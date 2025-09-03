@@ -27,5 +27,31 @@
       "tipo_conteudo": "usos_permitidos",
       "contem_tabela": false
     }
+  },
+  {
+    "content": "\n            ZONA RESIDENCIAL 2 (ZR2)\n            \n            PARÂMETROS URBANÍSTICOS:\n            - Taxa de Ocupação: máximo 50%\n            - Coeficiente de Aproveitamento: máximo 1,4\n            - Altura da Edificação: máximo 2 pavimentos ou 8,5 metros\n            - Recuo Frontal: mínimo 4,0 metros\n            - Recuos Laterais: mínimo 1,5 metros quando exigido\n            - Recuo de Fundos: mínimo 3,0 metros\n            - Área Permeável: mínimo 20%\n            ",
+    "metadata": {
+      "source": "lei_municipal",
+      "zona_especifica": "ZR2",
+      "zonas_mencionadas": [
+        "ZR",
+        "ZR2"
+      ],
+      "tipo_conteudo": "parametros_urbanisticos",
+      "contem_tabela": true
+    }
+  },
+  {
+    "content": "\n            ZONA RESIDENCIAL 2 (ZR2) - Usos Permitidos\n            \n            São permitidos na ZR2:\n            - Residencial unifamiliar\n            - Residencial multifamiliar (máximo 4 unidades)\n            - Comércio de proximidade (até 250m²)\n            - Serviços de proximidade\n            - Institucional de vizinhança\n            \n            Características: Zona destinada predominantemente à habitação,\n            com baixa densidade construtiva e ocupação.\n            ",
+    "metadata": {
+      "source": "lei_municipal",
+      "zona_especifica": "ZR2",
+      "zonas_mencionadas": [
+        "ZR",
+        "ZR2"
+      ],
+      "tipo_conteudo": "usos_permitidos",
+      "contem_tabela": false
+    }
   }
 ]

@@ -29,18 +29,31 @@ def test_app_integration():
     engine = AnalysisEngine()
     
     try:
-        print("\nTesting analysis for ZCC.4...")
-        result = engine.run_analysis(
+        print("\n=== Testing analysis for ZR2 ===")
+        result_zr2 = engine.run_analysis(
+            endereco="Bairro Residencial, Curitiba-PR",
+            cidade="curitiba",
+            memorial="Teste de integração ZR2",
+            zona_manual="ZR2",
+            usar_zona_manual=True
+        )
+        print("Analysis ZR2 successful!")
+        print(f"Result type: {type(result_zr2)}")
+        if isinstance(result_zr2, dict) and 'relatorio' in result_zr2:
+            print(f"Report ZR2 preview: {result_zr2['relatorio'][:200]}...")
+        
+        print("\n=== Testing analysis for ZCC.4 ===")
+        result_zcc = engine.run_analysis(
             endereco="Centro Cívico, Curitiba-PR",
             cidade="curitiba",
-            memorial="Teste de integração",
+            memorial="Teste de integração ZCC.4",
             zona_manual="ZCC.4",
             usar_zona_manual=True
         )
-        print("Analysis successful!")
-        print(f"Result type: {type(result)}")
-        if isinstance(result, dict) and 'relatorio' in result:
-            print(f"Report preview: {result['relatorio'][:200]}...")
+        print("Analysis ZCC.4 successful!")
+        print(f"Result type: {type(result_zcc)}")
+        if isinstance(result_zcc, dict) and 'relatorio' in result_zcc:
+            print(f"Report ZCC.4 preview: {result_zcc['relatorio'][:200]}...")
     except Exception as e:
         print(f"Analysis failed: {e}")
         # This is expected - let's see the error message

@@ -140,9 +140,10 @@ class FallbackDocumentRetriever:
 
 
 def create_sample_documents():
-    """Create sample documents for ZCC.4 zone for testing"""
+    """Create sample documents for multiple zones for testing"""
     
     sample_docs = [
+        # ZCC.4 Documents
         Document(
             page_content="""
             ZONA CENTRO CÍVICO (ZCC.4)
@@ -181,6 +182,50 @@ def create_sample_documents():
                 'source': 'lei_municipal',
                 'zona_especifica': 'ZCC.4',
                 'zonas_mencionadas': ['ZCC', 'ZCC.4', 'ZCC.1', 'ZCC.2', 'ZCC.3'],
+                'tipo_conteudo': 'usos_permitidos',
+                'contem_tabela': False
+            }
+        ),
+        # ZR2 Documents
+        Document(
+            page_content="""
+            ZONA RESIDENCIAL 2 (ZR2)
+            
+            PARÂMETROS URBANÍSTICOS:
+            - Taxa de Ocupação: máximo 50%
+            - Coeficiente de Aproveitamento: máximo 1,4
+            - Altura da Edificação: máximo 2 pavimentos ou 8,5 metros
+            - Recuo Frontal: mínimo 4,0 metros
+            - Recuos Laterais: mínimo 1,5 metros quando exigido
+            - Recuo de Fundos: mínimo 3,0 metros
+            - Área Permeável: mínimo 20%
+            """,
+            metadata={
+                'source': 'lei_municipal',
+                'zona_especifica': 'ZR2',
+                'zonas_mencionadas': ['ZR', 'ZR2'],
+                'tipo_conteudo': 'parametros_urbanisticos',
+                'contem_tabela': True
+            }
+        ),
+        Document(
+            page_content="""
+            ZONA RESIDENCIAL 2 (ZR2) - Usos Permitidos
+            
+            São permitidos na ZR2:
+            - Residencial unifamiliar
+            - Residencial multifamiliar (máximo 4 unidades)
+            - Comércio de proximidade (até 250m²)
+            - Serviços de proximidade
+            - Institucional de vizinhança
+            
+            Características: Zona destinada predominantemente à habitação,
+            com baixa densidade construtiva e ocupação.
+            """,
+            metadata={
+                'source': 'lei_municipal',
+                'zona_especifica': 'ZR2',
+                'zonas_mencionadas': ['ZR', 'ZR2'],
                 'tipo_conteudo': 'usos_permitidos',
                 'contem_tabela': False
             }

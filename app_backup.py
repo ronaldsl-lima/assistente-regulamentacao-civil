@@ -334,8 +334,6 @@ class DocumentRetriever:
                     {'zona_especifica': zona_var.replace('.', '')},
                     {'zonas_mencionadas': {'$in': [zona_var]}},
                 ])
-            
-            filtros.append({'tipo_conteudo': 'parametros_urbanisticos'})
             print(f"DEBUG - Total filtros: {len(filtros)}")
             
             for i, filtro in enumerate(filtros):
