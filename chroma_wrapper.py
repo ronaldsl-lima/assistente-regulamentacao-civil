@@ -63,9 +63,21 @@ class ChromaWrapper:
         self.collection_name = collection_name
         self.client = None
         self.available = CHROMADB_AVAILABLE
+        self.fallback_retriever = None
         
         if not CHROMADB_AVAILABLE:
-            print("ChromaDB not available - running in fallback mode")
+            print("ChromaDB not available - attempting fallback mode")
+            try:
+                from fallback_retriever import FallbackDocumentRetriever
+                self.fallback_retriever = FallbackDocumentRetriever()
+                self.available = self.fallback_retriever.available
+                if self.available:
+                    print("FALLBACK: Retriever loaded successfully")
+                else:
+                    print("FALLBACK: Retriever not available")
+            except Exception as e:
+                print(f"FALLBACK: Retriever failed: {e}")
+                self.available = False
             return
         
         # Create client with new API
@@ -89,14 +101,33 @@ class ChromaWrapper:
                     self.client = chromadb.PersistentClient(path=persist_directory or "./chroma_db")
                 except Exception as e3:
                     print(f"All ChromaDB client creation failed: {e3}")
-                    self.available = False
+                    print("Attempting fallback mode after ChromaDB failure...")
+                    try:
+                        from fallback_retriever import FallbackDocumentRetriever
+                        self.fallback_retriever = FallbackDocumentRetriever()
+                        self.available = self.fallback_retriever.available
+                        if self.available:
+                            print("FALLBACK: Retriever loaded successfully after ChromaDB failure")
+                        else:
+                            print("FALLBACK: Retriever also not available")
+                    except Exception as e4:
+                        print(f"FALLBACK: Retriever failed: {e4}")
+                        self.available = False
     
     def get_or_create_collection(self, name):
         """Get or create a collection"""
-        if not self.available or not self.client:
-            print(f"ChromaDB not available - cannot create collection {name}")
+        if not self.available:
+            print(f"Neither ChromaDB nor fallback available - cannot create collection {name}")
             return None
         
+        # If using fallback, return the fallback retriever itself
+        if hasattr(self, 'fallback_retriever'):
+            return self.fallback_retriever
+        
+        # ChromaDB path
+        if not self.client:
+            return None
+            
         try:
             return self.client.get_or_create_collection(name=name)
         except Exception as e:
@@ -128,6 +159,24 @@ class ChromaWrapper:
         except Exception as e:
             print(f"Search error: {e}")
             return []
+    
+    def get(self, where=None, limit=5):
+        """Get documents with filtering - used by DocumentRetriever"""
+        if hasattr(self, 'fallback_retriever'):
+            return self.fallback_retriever.get(where=where, limit=limit)
+        return {'documents': [], 'metadatas': []}
+    
+    def as_retriever(self, search_type="similarity", search_kwargs=None):
+        """Return a retriever interface"""
+        if hasattr(self, 'fallback_retriever'):
+            return self.fallback_retriever.as_retriever(search_type, search_kwargs)
+        
+        # Fallback retriever interface
+        class EmptyRetriever:
+            def get_relevant_documents(self, query: str):
+                return []
+        
+        return EmptyRetriever()
     
     @classmethod
     def from_documents(cls, documents, embedding, persist_directory=None, collection_name=None):
