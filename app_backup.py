@@ -9,6 +9,9 @@ from functools import lru_cache
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from dotenv import load_dotenv
+
+# Load environment variables early
+load_dotenv()
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import GoogleGenerativeAI
