@@ -678,7 +678,8 @@ class AnalysisEngine:
             
             if not documentos:
                 print(f"DEBUG - Busca falhou para zona: {zona}")
-                if not hasattr(self.vectorstore, 'available') or not self.vectorstore.available:
+                vectorstore = resources["vectorstore"]
+                if not hasattr(vectorstore, 'available') or not vectorstore.available:
                     raise ValueError(f"Base de dados não está disponível. Execute 'python ingest.py curitiba' para popular a base vetorial.")
                 else:
                     raise ValueError(f"Nenhum documento encontrado para a zona {zona}. Verifique se a zona está correta ou se os dados foram processados.")
