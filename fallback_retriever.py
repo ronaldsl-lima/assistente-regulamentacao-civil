@@ -249,20 +249,28 @@ def create_sample_documents():
     logger.info(f"Created sample documents for testing")
 
 if __name__ == "__main__":
-    # Create sample documents for immediate testing
-    create_sample_documents()
-    
-    # Test the retriever
+    # Test the retriever (sem sobrescrever dados existentes)
     retriever = FallbackDocumentRetriever()
     
     if retriever.available:
-        # Test filtering
+        print(f"Fallback retriever carregado com {len(retriever.documents)} documentos")
+        
+        # Test filtering ZCC.4
         result = retriever.get(where={'zona_especifica': 'ZCC.4'}, limit=5)
         print(f"Found {len(result['documents'])} documents for ZCC.4")
         
-        # Test similarity search
-        docs = retriever.similarity_search("coeficiente aproveitamento taxa ocupação", k=2)
-        print(f"Similarity search found {len(docs)} documents")
+        # Test filtering ZR-4 (ZONA RESIDENCIAL 4 - LINHA VERDE)  
+        result_zr4 = retriever.get(where={'zona_especifica': 'ZR-4'}, limit=5)
+        print(f"Found {len(result_zr4['documents'])} documents for ZR-4")
+        
+        # Mostrar zonas disponíveis
+        zonas = set()
+        for doc in retriever.documents:
+            if 'zona_especifica' in doc.metadata:
+                zonas.add(doc.metadata['zona_especifica'])
+        print(f"Total de zonas disponíveis: {len(zonas)}")
+        print(f"Primeiras 10 zonas: {sorted(list(zonas))[:10]}")
         
     else:
-        print("Fallback retriever not available")
+        print("Fallback retriever não disponível - criando dados de exemplo...")
+        create_sample_documents()
