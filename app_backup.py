@@ -658,8 +658,6 @@ class AnalysisEngine:
             
             if not documentos:
                 print(f"DEBUG - Busca falhou para zona: {zona}")
-                print(f"DEBUG - Zona normalizada: {zona_normalizada}")
-                print(f"DEBUG - Zona limpa: {zona_limpa}")
                 raise ValueError(f"Nenhum documento encontrado para a zona {zona}")
             
             # 5. Gerar relatório
