@@ -22,7 +22,8 @@ import pypdf
 import pandas as pd
 from datetime import datetime
 from utils import encontrar_zona_por_endereco
-from gis_zone_detector import detect_zone_professional
+from detect_zone_enhanced import detect_zone_professional
+from enhanced_official_system import EnhancedOfficialSystem
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -649,9 +650,11 @@ class AnalysisEngine:
     
     def __init__(self):
         self.extractor = ParameterExtractor()
+        self.enhanced_official = EnhancedOfficialSystem()
     
     def run_analysis(self, cidade: str, endereco: str, memorial: str, 
-                    zona_manual: Optional[str] = None, usar_zona_manual: bool = False) -> Dict[str, Any]:
+                    zona_manual: Optional[str] = None, usar_zona_manual: bool = False,
+                    inscricao: Optional[str] = None) -> Dict[str, Any]:
         """Execução otimizada da análise"""
         
         try:
@@ -664,24 +667,32 @@ class AnalysisEngine:
                 zona_info = f"{zona} (INFORMADA MANUALMENTE)"
                 detection_details = "Zona informada pelo usuário"
             else:
-                # Usar sistema GIS profissional
-                detection_result = detect_zone_professional(endereco or "")
-                zona = detection_result.zona
+                # Usar sistema oficial aprimorado (Shapefile + Web Scraper + Sistema Local)
+                enhanced_result = self.enhanced_official.detect_zone_enhanced_official(endereco or "", inscricao or "")
+                zona = enhanced_result.zona
                 
-                # Criar informações detalhadas da detecção
-                if detection_result.confidence == "OFICIAL":
+                # Criar informações detalhadas da detecção oficial aprimorada
+                if enhanced_result.confidence in ["OFICIAL_SHAPEFILE", "DUPLA_CONFIRMACAO"]:
+                    zona_info = f"{zona} (DETECTADA OFICIALMENTE)"
+                    detection_details = f"Zona oficial via {enhanced_result.source} - {enhanced_result.details}"
+                elif enhanced_result.confidence in ["SEHIS_CONFIRMADO", "SEHIS_CORRIGIDO"]:
+                    zona_info = f"{zona} (SEHIS CONFIRMADO)"
+                    detection_details = f"SEHIS detectado via {enhanced_result.consolidation_method} - {enhanced_result.details}"
+                elif enhanced_result.confidence in ["OFICIAL_WEB", "ESTIMADO_LOCAL"]:
                     zona_info = f"{zona} (DETECTADA AUTOMATICAMENTE)"
-                    detection_details = f"Zona detectada oficialmente via {detection_result.source}: {detection_result.details}"
-                elif detection_result.confidence == "ESTIMADA":
-                    zona_info = f"{zona} (ZONA ESTIMADA)"
-                    detection_details = f"Zona estimada via {detection_result.source}: {detection_result.details}"
+                    detection_details = f"Zona detectada via {enhanced_result.consolidation_method} - {enhanced_result.details}"
                 else:
-                    zona_info = f"{zona} (ZONA PADRÃO)"
-                    detection_details = f"Zona padrão utilizada: {detection_result.details}"
+                    zona_info = f"{zona} (VERIFICAÇÃO RECOMENDADA)"
+                    detection_details = f"Zona com baixa confiança - {enhanced_result.details}"
                 
-                print(f"DEBUG GIS - Zona detectada: {zona} | Confiança: {detection_result.confidence} | Fonte: {detection_result.source}")
-                if detection_result.coordinates:
-                    print(f"DEBUG GIS - Coordenadas: {detection_result.coordinates}")
+                print(f"DEBUG SISTEMA OFICIAL - Zona final: {zona} | Confiança: {enhanced_result.confidence} | Método: {enhanced_result.consolidation_method}")
+                print(f"DEBUG SISTEMA OFICIAL - Fonte: {enhanced_result.source}")
+                if enhanced_result.official_zone:
+                    print(f"DEBUG SISTEMA OFICIAL - Shapefile oficial: {enhanced_result.official_zone} ({enhanced_result.official_name})")
+                if enhanced_result.web_scraper_zone:
+                    print(f"DEBUG SISTEMA OFICIAL - Web scraper: {enhanced_result.web_scraper_zone}")
+                if enhanced_result.local_zone:
+                    print(f"DEBUG SISTEMA OFICIAL - Sistema local: {enhanced_result.local_zone}")
             
             # Salvar informações de detecção para uso posterior
             zona_detection_info = zona_info
@@ -1209,7 +1220,8 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
                     endereco=dados['endereco'],
                     memorial=memorial,
                     zona_manual=dados['zona_manual'],
-                    usar_zona_manual=dados['usar_zona_manual']
+                    usar_zona_manual=dados['usar_zona_manual'],
+                    inscricao=dados['inscricao_imobiliaria']
                 )
                 
                 # Adicionar dados do formulário ao resultado
