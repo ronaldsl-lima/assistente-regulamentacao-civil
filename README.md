@@ -39,4 +39,4 @@ Sistema suporta **39 zonas** de Curitiba:
 
 ---
 
-Desenvolvido para engenheiros civis | Versão 6.0 | 2024
+Desenvolvido para engenheiros civis | Versão 6.0 | 2024# Force redeploy qui,  4 de set de 2025 11:16:57
