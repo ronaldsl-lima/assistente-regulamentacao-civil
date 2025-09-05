@@ -10,16 +10,3 @@ pandas==2.0.3
 geopandas==0.14.3
 shapely==2.0.3
 requests==2.31.0
-sqlite3
-dataclasses
-logging
-asyncio
-concurrent.futures
-functools
-typing
-datetime
-pathlib
-os
-re
-json
-time
