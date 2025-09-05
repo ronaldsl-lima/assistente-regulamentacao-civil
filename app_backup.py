@@ -22,6 +22,8 @@ import pypdf
 import pandas as pd
 from datetime import datetime
 from utils import encontrar_zona_por_endereco
+from detect_zone_enhanced import detect_zone_professional
+from enhanced_official_system import EnhancedOfficialSystem
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -648,22 +650,53 @@ class AnalysisEngine:
     
     def __init__(self):
         self.extractor = ParameterExtractor()
+        self.enhanced_official = EnhancedOfficialSystem()
     
     def run_analysis(self, cidade: str, endereco: str, memorial: str, 
-                    zona_manual: Optional[str] = None, usar_zona_manual: bool = False) -> Dict[str, Any]:
+                    zona_manual: Optional[str] = None, usar_zona_manual: bool = False,
+                    inscricao: Optional[str] = None) -> Dict[str, Any]:
         """Execução otimizada da análise"""
         
         try:
             # 1. Carregar recursos
             resources = resource_manager.get_resources(cidade)
             
-            # 2. Identificar zona
+            # 2. Identificar zona com sistema GIS profissional
             if usar_zona_manual and zona_manual:
                 zona = zona_manual
+                zona_info = f"{zona} (INFORMADA MANUALMENTE)"
+                detection_details = "Zona informada pelo usuário"
             else:
-                zona, erro = encontrar_zona_por_endereco(endereco, CONFIG.CAMINHO_MAPA_ZONEAMENTO)
-                if erro:
-                    raise ValueError(f"Erro na identificação da zona: {erro}")
+                # Usar sistema oficial aprimorado (Shapefile + Web Scraper + Sistema Local)
+                enhanced_result = self.enhanced_official.detect_zone_enhanced_official(endereco or "", inscricao or "")
+                zona = enhanced_result.zona
+                
+                # Criar informações detalhadas da detecção oficial aprimorada
+                if enhanced_result.confidence in ["OFICIAL_SHAPEFILE", "DUPLA_CONFIRMACAO"]:
+                    zona_info = f"{zona} (DETECTADA OFICIALMENTE)"
+                    detection_details = f"Zona oficial via {enhanced_result.source} - {enhanced_result.details}"
+                elif enhanced_result.confidence in ["SEHIS_CONFIRMADO", "SEHIS_CORRIGIDO"]:
+                    zona_info = f"{zona} (SEHIS CONFIRMADO)"
+                    detection_details = f"SEHIS detectado via {enhanced_result.consolidation_method} - {enhanced_result.details}"
+                elif enhanced_result.confidence in ["OFICIAL_WEB", "ESTIMADO_LOCAL"]:
+                    zona_info = f"{zona} (DETECTADA AUTOMATICAMENTE)"
+                    detection_details = f"Zona detectada via {enhanced_result.consolidation_method} - {enhanced_result.details}"
+                else:
+                    zona_info = f"{zona} (VERIFICAÇÃO RECOMENDADA)"
+                    detection_details = f"Zona com baixa confiança - {enhanced_result.details}"
+                
+                print(f"DEBUG SISTEMA OFICIAL - Zona final: {zona} | Confiança: {enhanced_result.confidence} | Método: {enhanced_result.consolidation_method}")
+                print(f"DEBUG SISTEMA OFICIAL - Fonte: {enhanced_result.source}")
+                if enhanced_result.official_zone:
+                    print(f"DEBUG SISTEMA OFICIAL - Shapefile oficial: {enhanced_result.official_zone} ({enhanced_result.official_name})")
+                if enhanced_result.web_scraper_zone:
+                    print(f"DEBUG SISTEMA OFICIAL - Web scraper: {enhanced_result.web_scraper_zone}")
+                if enhanced_result.local_zone:
+                    print(f"DEBUG SISTEMA OFICIAL - Sistema local: {enhanced_result.local_zone}")
+            
+            # Salvar informações de detecção para uso posterior
+            zona_detection_info = zona_info
+            zona_detection_details = detection_details
             
             # 3. Extrair parâmetros
             parametros = self.extractor.extract(memorial)
@@ -713,10 +746,13 @@ class AnalysisEngine:
                 'documentos': documentos,
                 'memorial': memorial,
                 'zona': zona,
+                'zona_info': zona_detection_info,
+                'zona_detection_details': zona_detection_details,
                 'parametros': parametros,
                 'info_projeto': {
-                    'Endereço': endereco,
-                    'Zona_de_Uso': zona,
+                    'Endereço': endereco if endereco else 'NÃO INFORMADO',
+                    'Zona_de_Uso': zona_detection_info,
+                    'Sistema_Detecção': zona_detection_details,
                     'Município': cidade.capitalize(),
                     'Data_da_Análise': datetime.now().strftime("%d/%m/%Y")
                 }
@@ -768,6 +804,38 @@ def configurar_pagina():
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    
+    # CSS customizado para aumentar largura da sidebar apenas em desktop
+    st.markdown("""
+    <style>
+        /* Aumentar largura da sidebar para desktop (tela >= 768px) */
+        @media (min-width: 768px) {
+            .css-1d391kg {
+                width: 400px !important;
+            }
+            .css-1outpf7 {
+                padding-left: 420px !important;
+            }
+            section[data-testid="stSidebar"] > div {
+                width: 400px !important;
+            }
+            section[data-testid="stSidebar"] {
+                width: 400px !important;
+                min-width: 400px !important;
+            }
+        }
+        
+        /* Manter responsividade para mobile (tela < 768px) */
+        @media (max-width: 767px) {
+            section[data-testid="stSidebar"] > div {
+                width: 100% !important;
+            }
+            section[data-testid="stSidebar"] {
+                width: 100% !important;
+            }
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
 @lru_cache(maxsize=10)
 def get_cidades_disponiveis():
@@ -783,8 +851,318 @@ def extrair_texto_pdf(arquivo):
         logger.error(f"Erro ao extrair PDF: {e}")
         raise ValueError("Erro ao processar o arquivo PDF")
 
+def criar_formulario_estruturado():
+    """Cria formulário estruturado para coleta de dados do projeto"""
+    
+    # Inicializar estado da sessão
+    if 'dados_projeto' not in st.session_state:
+        st.session_state.dados_projeto = {}
+    
+    cidades = get_cidades_disponiveis()
+    
+    # =============================================
+    # SEÇÃO 1: Identificação do Projeto
+    # =============================================
+    st.sidebar.title("🏗️ Assistente Regulamentação Civil")
+    st.sidebar.header("📍 1. Identificação do Projeto")
+    
+    cidade = st.sidebar.selectbox(
+        "Prefeitura:", 
+        cidades,
+        help="Selecione a prefeitura responsável pela análise"
+    )
+    
+    endereco = st.sidebar.text_input(
+        "Endereço Completo do Imóvel:",
+        placeholder="Ex: Rua das Flores, 123, Centro, Curitiba-PR",
+        help="Digite o endereço completo com logradouro, número, bairro e cidade"
+    )
+    
+    inscricao_imobiliaria = st.sidebar.text_input(
+        "Inscrição Imobiliária:",
+        placeholder="Ex: 03000180090017",
+        help="Digite o número da inscrição imobiliária do imóvel (opcional)"
+    )
+    
+    # =============================================
+    # SEÇÃO 2: Dados do Lote
+    # =============================================
+    st.sidebar.header("📐 2. Dados do Lote")
+    
+    area_lote = st.sidebar.number_input(
+        "Área Total do Lote (m²):",
+        min_value=0.0,
+        step=1.0,
+        help="Área total do terreno em metros quadrados"
+    )
+    
+    uso_pretendido = st.sidebar.selectbox(
+        "Uso Pretendido da Edificação:",
+        [
+            "Selecione...",
+            "Residencial Unifamiliar",
+            "Residencial Multifamiliar",
+            "Comercial",
+            "Serviços",
+            "Industrial",
+            "Institucional",
+            "Misto (Residencial + Comercial)",
+            "Outros"
+        ],
+        help="Selecione o uso principal da edificação"
+    )
+    
+    # =============================================
+    # SEÇÃO 3: Restrições do Lote
+    # =============================================
+    st.sidebar.header("🚫 3. Restrições do Lote")
+    
+    # APP - Área de Preservação Permanente
+    possui_app = st.sidebar.checkbox(
+        "Possui Área de Preservação Permanente (APP)?",
+        help="Marque se o lote possui área de APP que não pode ser ocupada"
+    )
+    
+    area_app = 0.0
+    if possui_app:
+        area_app = st.sidebar.number_input(
+            "Área de APP (m²):",
+            min_value=0.0,
+            step=1.0,
+            help="Área de preservação permanente em metros quadrados"
+        )
+    
+    # Drenagem
+    possui_drenagem = st.sidebar.checkbox(
+        "Possui Área não Edificável de Drenagem?",
+        help="Marque se o lote possui área reservada para drenagem urbana"
+    )
+    
+    area_drenagem = 0.0
+    if possui_drenagem:
+        area_drenagem = st.sidebar.number_input(
+            "Área de Drenagem (m²):",
+            min_value=0.0,
+            step=1.0,
+            help="Área não edificável de drenagem em metros quadrados"
+        )
+    
+    # =============================================
+    # SEÇÃO 4: Parâmetros da Edificação Projetada
+    # =============================================
+    st.sidebar.header("🏠 4. Parâmetros da Edificação")
+    
+    area_projecao = st.sidebar.number_input(
+        "Área da Projeção da Edificação (m²):",
+        min_value=0.0,
+        step=1.0,
+        help="Área ocupada pela projeção horizontal da edificação"
+    )
+    
+    area_construida = st.sidebar.number_input(
+        "Área Construída Total (m²):",
+        min_value=0.0,
+        step=1.0,
+        help="Somatório das áreas de todos os pavimentos"
+    )
+    
+    altura_edificacao = st.sidebar.number_input(
+        "Altura Total da Edificação (m):",
+        min_value=0.0,
+        step=0.1,
+        help="Altura total da edificação em metros"
+    )
+    
+    num_pavimentos = st.sidebar.number_input(
+        "Número de Pavimentos:",
+        min_value=1,
+        step=1,
+        help="Quantidade total de pavimentos da edificação"
+    )
+    
+    # =============================================
+    # SEÇÃO 5: Afastamentos (Recuos)
+    # =============================================
+    st.sidebar.header("↔️ 5. Afastamentos (Recuos)")
+    
+    recuo_frontal = st.sidebar.number_input(
+        "Recuo Frontal (m):",
+        min_value=0.0,
+        step=0.1,
+        help="Distância da edificação até a divisa frontal do lote"
+    )
+    
+    recuo_lateral_dir = st.sidebar.number_input(
+        "Recuo Lateral Direito (m):",
+        min_value=0.0,
+        step=0.1,
+        help="Distância da edificação até a divisa lateral direita"
+    )
+    
+    recuo_lateral_esq = st.sidebar.number_input(
+        "Recuo Lateral Esquerdo (m):",
+        min_value=0.0,
+        step=0.1,
+        help="Distância da edificação até a divisa lateral esquerda"
+    )
+    
+    recuo_fundos = st.sidebar.number_input(
+        "Recuo de Fundos (m):",
+        min_value=0.0,
+        step=0.1,
+        help="Distância da edificação até a divisa de fundos"
+    )
+    
+    # =============================================
+    # SEÇÃO 6: Parâmetros Adicionais
+    # =============================================
+    st.sidebar.header("🌱 6. Parâmetros Adicionais")
+    
+    area_permeavel = st.sidebar.number_input(
+        "Área Permeável (m²):",
+        min_value=0.0,
+        step=1.0,
+        help="Área do lote que permanece permeável (jardins, gramados, etc.)"
+    )
+    
+    num_vagas = st.sidebar.number_input(
+        "Número de Vagas de Estacionamento:",
+        min_value=0,
+        step=1,
+        help="Quantidade de vagas de estacionamento previstas"
+    )
+    
+    # =============================================
+    # OPÇÕES AVANÇADAS
+    # =============================================
+    with st.sidebar.expander("⚙️ Opções Avançadas"):
+        zona_manual = st.sidebar.text_input(
+            "Zona Manual:",
+            placeholder="Ex: ZR-4, ZCC.4",
+            help="Informe a zona se conhecida (opcional)"
+        )
+        usar_zona_manual = st.sidebar.checkbox(
+            "Usar zona informada manualmente",
+            help="Marque para usar a zona informada ao invés da detecção automática"
+        )
+    
+    # =============================================
+    # VALIDAÇÕES E CÁLCULOS
+    # =============================================
+    
+    # Verificar se pelo menos um campo principal está preenchido
+    campos_principais = [
+        endereco, area_lote > 0, uso_pretendido != "Selecione...", 
+        area_projecao > 0, area_construida > 0, altura_edificacao > 0,
+        inscricao_imobiliaria
+    ]
+    
+    pelo_menos_um_campo = any(campo for campo in campos_principais)
+    
+    # Validações lógicas
+    validacoes_ok = True
+    mensagens_erro = []
+    
+    if area_lote > 0:
+        if area_projecao > area_lote:
+            validacoes_ok = False
+            mensagens_erro.append("Área de projeção não pode ser maior que a área do lote")
+        
+        if (area_app + area_drenagem) > area_lote:
+            validacoes_ok = False
+            mensagens_erro.append("Soma das áreas de APP e drenagem não pode ser maior que a área do lote")
+        
+        if area_permeavel > area_lote:
+            validacoes_ok = False
+            mensagens_erro.append("Área permeável não pode ser maior que a área do lote")
+    
+    if area_construida < area_projecao and area_construida > 0:
+        validacoes_ok = False
+        mensagens_erro.append("Área construída total deve ser maior ou igual à área de projeção")
+    
+    # Cálculos automáticos
+    taxa_ocupacao = 0.0
+    coeficiente_aproveitamento = 0.0
+    
+    if area_lote > 0:
+        taxa_ocupacao = (area_projecao / area_lote) * 100
+        coeficiente_aproveitamento = area_construida / area_lote
+    
+    # Mostrar validações
+    if mensagens_erro:
+        for erro in mensagens_erro:
+            st.sidebar.error(f"⚠️ {erro}")
+    
+    # =============================================
+    # BOTÃO DE ANÁLISE
+    # =============================================
+    st.sidebar.markdown("---")
+    
+    # Botão habilitado se pelo menos um campo estiver preenchido e sem erros críticos
+    pode_analisar = pelo_menos_um_campo and validacoes_ok
+    
+    if not pode_analisar:
+        if not pelo_menos_um_campo:
+            st.sidebar.warning("⚠️ Preencha pelo menos um campo para análise")
+        elif not validacoes_ok:
+            st.sidebar.warning("⚠️ Corrija os erros de validação acima")
+    
+    analisar = st.sidebar.button(
+        "🔍 Analisar Conformidade",
+        type="primary",
+        use_container_width=True,
+        disabled=not pode_analisar,
+        help="Clique para iniciar a análise de conformidade urbanística"
+    )
+    
+    # =============================================
+    # INFORMAÇÕES DO SISTEMA
+    # =============================================
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### ℹ️ Cálculos Automáticos")
+    
+    if area_lote > 0:
+        col1, col2 = st.sidebar.columns(2)
+        col1.metric("Taxa de Ocupação", f"{taxa_ocupacao:.1f}%")
+        col2.metric("Coef. Aproveitamento", f"{coeficiente_aproveitamento:.2f}")
+    
+    st.sidebar.info(f"""
+    **Sistema:** v{CONFIG.VERSAO_APP}  
+    **Cidade:** Curitiba  
+    **Status:** ✅ Operacional
+    """)
+    
+    # Retornar dados coletados
+    return {
+        'cidade': cidade,
+        'endereco': endereco,
+        'inscricao_imobiliaria': inscricao_imobiliaria,
+        'area_lote': area_lote,
+        'uso_pretendido': uso_pretendido,
+        'possui_app': possui_app,
+        'area_app': area_app,
+        'possui_drenagem': possui_drenagem,
+        'area_drenagem': area_drenagem,
+        'area_projecao': area_projecao,
+        'area_construida': area_construida,
+        'altura_edificacao': altura_edificacao,
+        'num_pavimentos': num_pavimentos,
+        'recuo_frontal': recuo_frontal,
+        'recuo_lateral_dir': recuo_lateral_dir,
+        'recuo_lateral_esq': recuo_lateral_esq,
+        'recuo_fundos': recuo_fundos,
+        'area_permeavel': area_permeavel,
+        'num_vagas': num_vagas,
+        'zona_manual': zona_manual,
+        'usar_zona_manual': usar_zona_manual,
+        'taxa_ocupacao': taxa_ocupacao,
+        'coeficiente_aproveitamento': coeficiente_aproveitamento,
+        'pode_analisar': pode_analisar,
+        'analisar': analisar
+    }
+
 def main():
-    """Aplicação principal otimizada"""
+    """Aplicação principal com formulário estruturado"""
     configurar_pagina()
     
     # Initialize engine
@@ -794,57 +1172,60 @@ def main():
     if 'analysis_result' not in st.session_state:
         st.session_state.analysis_result = None
     
-    # UI
-    cidades = get_cidades_disponiveis()
-    
-    # Sidebar
-    st.sidebar.title("Configuração da Análise")
-    cidade = st.sidebar.selectbox("Selecione a Prefeitura", cidades)
-    endereco = st.sidebar.text_input("Endereço do Imóvel", placeholder="Ex: Rua da Glória, 290, Curitiba")
-    
-    # Upload/texto
-    st.sidebar.header("Memorial Descritivo")
-    tab1, tab2 = st.sidebar.tabs(["📄 Upload PDF", "✏️ Texto"])
-    
-    with tab1:
-        arquivo = st.file_uploader("Selecione o PDF", type="pdf")
-    with tab2:
-        texto = st.text_area("Cole o texto aqui", height=200)
-    
-    # Opções avançadas
-    with st.sidebar.expander("⚙️ Opções Avançadas"):
-        zona_manual = st.text_input("Zona Manual")
-        usar_manual = st.checkbox("Usar zona manual")
-    
-    analisar = st.sidebar.button("🔍 Analisar Conformidade", type="primary", use_container_width=True)
+    # Criar formulário estruturado
+    dados = criar_formulario_estruturado()
     
     # Processo de análise
-    if analisar:
-        # Validações
-        memorial = ""
-        if arquivo:
-            memorial = extrair_texto_pdf(arquivo)
-        elif texto:
-            memorial = texto
-        
-        if not memorial:
-            st.error("❌ Memorial descritivo é obrigatório")
-            return
-        
-        if not endereco and not (usar_manual and zona_manual):
-            st.error("❌ Endereço ou zona manual são obrigatórios")
-            return
+    if dados['analisar']:
+        # Criar memorial descritivo estruturado a partir dos dados (com tratamento de campos vazios)
+        memorial = f"""
+DADOS DO PROJETO URBANÍSTICO
+
+1. IDENTIFICAÇÃO:
+- Endereço: {dados['endereco'] if dados['endereco'] else 'NÃO INFORMADO'}
+- Inscrição Imobiliária: {dados['inscricao_imobiliaria'] if dados['inscricao_imobiliaria'] else 'NÃO INFORMADA'}
+- Uso Pretendido: {dados['uso_pretendido'] if dados['uso_pretendido'] != 'Selecione...' else 'NÃO INFORMADO'}
+
+2. DADOS DO LOTE:
+- Área Total: {dados['area_lote']:.2f} m² {('(NÃO INFORMADA)' if dados['area_lote'] == 0 else '')}
+- Área de APP: {dados['area_app']:.2f} m² ({('SIM' if dados['possui_app'] else 'NÃO')})
+- Área de Drenagem: {dados['area_drenagem']:.2f} m² ({('SIM' if dados['possui_drenagem'] else 'NÃO')})
+- Área Permeável: {dados['area_permeavel']:.2f} m² {('(NÃO INFORMADA)' if dados['area_permeavel'] == 0 else '')}
+
+3. PARÂMETROS DA EDIFICAÇÃO:
+- Área de Projeção: {dados['area_projecao']:.2f} m² {('(NÃO INFORMADA)' if dados['area_projecao'] == 0 else '')}
+- Área Construída Total: {dados['area_construida']:.2f} m² {('(NÃO INFORMADA)' if dados['area_construida'] == 0 else '')}
+- Altura da Edificação: {dados['altura_edificacao']:.2f} m {('(NÃO INFORMADA)' if dados['altura_edificacao'] == 0 else '')}
+- Número de Pavimentos: {dados['num_pavimentos']} {('(NÃO INFORMADO)' if dados['num_pavimentos'] == 1 else '')}
+- Vagas de Estacionamento: {dados['num_vagas']} {('(NÃO INFORMADO)' if dados['num_vagas'] == 0 else '')}
+
+4. AFASTAMENTOS (RECUOS):
+- Recuo Frontal: {dados['recuo_frontal']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_frontal'] == 0 else '')}
+- Recuo Lateral Direito: {dados['recuo_lateral_dir']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_lateral_dir'] == 0 else '')}
+- Recuo Lateral Esquerdo: {dados['recuo_lateral_esq']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_lateral_esq'] == 0 else '')}
+- Recuo de Fundos: {dados['recuo_fundos']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_fundos'] == 0 else '')}
+
+5. ÍNDICES CALCULADOS:
+- Taxa de Ocupação: {dados['taxa_ocupacao']:.2f}% {('(IMPOSSÍVEL CALCULAR - DADOS INSUFICIENTES)' if dados['area_lote'] == 0 else '')}
+- Coeficiente de Aproveitamento: {dados['coeficiente_aproveitamento']:.2f} {('(IMPOSSÍVEL CALCULAR - DADOS INSUFICIENTES)' if dados['area_lote'] == 0 else '')}
+
+OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análise de conformidade.
+"""
         
         # Executar análise
         try:
-            with st.spinner("Executando análise..."):
+            with st.spinner("Executando análise de conformidade urbanística..."):
                 resultado = st.session_state.engine.run_analysis(
                     cidade=cidade,
-                    endereco=endereco,
+                    endereco=dados['endereco'],
                     memorial=memorial,
-                    zona_manual=zona_manual,
-                    usar_zona_manual=usar_manual
+                    zona_manual=dados['zona_manual'],
+                    usar_zona_manual=dados['usar_zona_manual'],
+                    inscricao=dados['inscricao_imobiliaria']
                 )
+                
+                # Adicionar dados do formulário ao resultado
+                resultado['dados_formulario'] = dados
                 st.session_state.analysis_result = resultado
                 st.rerun()
                 
@@ -856,8 +1237,24 @@ def main():
     if st.session_state.analysis_result:
         resultado = st.session_state.analysis_result
         
-        # Header com status
-        st.header(f"📋 Relatório: Zona {resultado['zona']}")
+        # Header com status aprimorado
+        zona_display = resultado.get('zona_info', resultado['zona'])
+        st.header(f"📋 Relatório: Zona {zona_display}")
+        
+        # Mostrar informações de detecção se disponível
+        if 'zona_detection_details' in resultado:
+            with st.expander("🔍 Informações da Detecção de Zona", expanded=False):
+                st.info(resultado['zona_detection_details'])
+                
+                # Mostrar coordenadas se disponível (buscar no log)
+                if "Coordenadas GPS" in resultado['zona_detection_details']:
+                    st.success("✅ **Detecção Oficial:** Zona identificada com precisão geográfica usando sistema GIS profissional")
+                elif "análise textual" in resultado['zona_detection_details'].lower():
+                    st.warning("⚠️ **Zona Estimada:** Baseada em análise textual do endereço")
+                elif "padrão" in resultado['zona_detection_details'].lower():
+                    st.info("🔄 **Zona Padrão:** Sistema utilizou zona residencial padrão para análise")
+                elif "manual" in resultado['zona_detection_details'].lower():
+                    st.success("✅ **Zona Manual:** Informada pelo usuário")
         
         parecer = resultado['resultado']
         if "não conformidade" in parecer.lower() or "reprovado" in parecer.lower():
@@ -904,13 +1301,11 @@ def main():
         st.markdown("---")
         st.info("📋 Configure a análise na barra lateral para começar")
         
-        # Stats
+        # Info compacta
+        cidade = dados.get('cidade', '')
         if cidade and (CONFIG.PASTA_DADOS_RAIZ / cidade.lower()).exists():
-            st.markdown(f"### 📊 Base: {cidade.title()}")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Status", "✅ Ativo")
-            col2.metric("Versão", CONFIG.VERSAO_APP)
-            col3.metric("Engine", "Otimizado")
+            st.markdown("---")
+            st.markdown(f"📊 {cidade.title()} • v{CONFIG.VERSAO_APP} • ✅ Ativo")
 
 if __name__ == "__main__":
     load_dotenv()
