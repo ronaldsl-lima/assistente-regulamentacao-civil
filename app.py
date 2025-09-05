@@ -1216,7 +1216,7 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         try:
             with st.spinner("Executando análise de conformidade urbanística..."):
                 resultado = st.session_state.engine.run_analysis(
-                    cidade=dados['cidade'],
+                    cidade=cidade,
                     endereco=dados['endereco'],
                     memorial=memorial,
                     zona_manual=dados['zona_manual'],
