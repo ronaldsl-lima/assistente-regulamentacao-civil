@@ -5,13 +5,20 @@ Gráficos comparativos, semáforos e visualizações interativas
 """
 
 import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 import pandas as pd
 from typing import Dict, Any, List
 import numpy as np
 from parametros_oficiais_curitiba import ParametrosOficiaisCuritiba
+
+# Importação condicional do plotly com fallback
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.warning("⚠️ Plotly não disponível. Gráficos desabilitados temporariamente.")
 
 class VisualDashboard:
     """Dashboard visual para análise urbanística"""
