@@ -11,6 +11,7 @@ from plotly.subplots import make_subplots
 import pandas as pd
 from typing import Dict, Any, List
 import numpy as np
+from parametros_oficiais_curitiba import ParametrosOficiaisCuritiba
 
 class VisualDashboard:
     """Dashboard visual para análise urbanística"""
@@ -22,14 +23,16 @@ class VisualDashboard:
             'nao_conforme': '#dc3545',  # Vermelho
             'neutro': '#6c757d'         # Cinza
         }
+        # Sistema oficial de parâmetros
+        self.parametros_oficiais = ParametrosOficiaisCuritiba()
     
-    def criar_semaforo_conformidade(self, parametros_projeto: Dict, parametros_zona: Dict) -> None:
+    def criar_semaforo_conformidade(self, parametros_projeto: Dict, parametros_zona: Dict, zona: str) -> None:
         """Cria visualização semáforo da conformidade"""
         
         st.subheader("🚦 Análise de Conformidade")
         
         # Extrair valores numéricos dos parâmetros
-        analises = self._analisar_parametros(parametros_projeto, parametros_zona)
+        analises = self._analisar_parametros_oficiais(parametros_projeto, zona)
         
         # Criar colunas para o semáforo
         cols = st.columns(len(analises))
@@ -57,14 +60,14 @@ class VisualDashboard:
                 </div>
                 """, unsafe_allow_html=True)
     
-    def criar_grafico_barras_comparativo(self, parametros_projeto: Dict, parametros_zona: Dict) -> None:
+    def criar_grafico_barras_comparativo(self, parametros_projeto: Dict, parametros_zona: Dict, zona: str) -> None:
         """Cria gráfico de barras comparativo"""
         
         st.subheader("📊 Comparativo: Projeto vs Permitido")
         
         # Processar dados para o gráfico
         dados = []
-        analises = self._analisar_parametros(parametros_projeto, parametros_zona)
+        analises = self._analisar_parametros_oficiais(parametros_projeto, zona)
         
         for parametro, info in analises.items():
             if isinstance(info['valor_projeto_num'], (int, float)) and isinstance(info['valor_limite_num'], (int, float)):
@@ -111,13 +114,13 @@ class VisualDashboard:
             
             st.plotly_chart(fig, use_container_width=True)
     
-    def criar_gauge_aproveitamento(self, parametros_projeto: Dict, parametros_zona: Dict) -> None:
+    def criar_gauge_aproveitamento(self, parametros_projeto: Dict, parametros_zona: Dict, zona: str) -> None:
         """Cria gráficos gauge de aproveitamento"""
         
         st.subheader("🎯 Aproveitamento do Potencial Construtivo")
         
         # Criar gauges para parâmetros principais
-        analises = self._analisar_parametros(parametros_projeto, parametros_zona)
+        analises = self._analisar_parametros_oficiais(parametros_projeto, zona)
         
         # Filtrar parâmetros para gauge
         parametros_gauge = ['Taxa de Ocupação', 'Coef. Aproveitamento', 'Altura']
@@ -167,12 +170,71 @@ class VisualDashboard:
                         fig.update_layout(height=250)
                         st.plotly_chart(fig, use_container_width=True)
     
+    def _analisar_parametros_oficiais(self, parametros_projeto: Dict, zona: str) -> Dict:
+        """Analisa parâmetros usando o sistema oficial de Curitiba"""
+        
+        # Mapear parâmetros do projeto para formato esperado
+        projeto_mapeado = {
+            'taxa_ocupacao': parametros_projeto.get('taxa_ocupacao', 0),
+            'coeficiente_aproveitamento': parametros_projeto.get('coeficiente_aproveitamento', 0),
+            'altura_edificacao': parametros_projeto.get('altura_edificacao', 0),
+            'recuo_frontal': parametros_projeto.get('recuo_frontal', 0),
+            'recuos_laterais': parametros_projeto.get('recuos_laterais', 0),
+            'recuo_fundos': parametros_projeto.get('recuo_fundos', 0),
+            'taxa_permeabilidade': parametros_projeto.get('area_permeavel', 0),
+        }
+        
+        # Filtrar apenas valores válidos (> 0)
+        projeto_filtrado = {k: v for k, v in projeto_mapeado.items() if v and float(v) > 0}
+        
+        # Gerar análise oficial
+        resultado = self.parametros_oficiais.gerar_tabela_comparativa(zona, projeto_filtrado)
+        
+        # Converter para formato compatível com dashboard
+        analises = {}
+        if resultado.get('zona_valida'):
+            for param_nome, validacao in resultado.get('parametros', {}).items():
+                # Mapear nomes de volta
+                nome_dashboard = {
+                    'taxa_ocupacao': 'Taxa de Ocupação',
+                    'coeficiente_aproveitamento': 'Coef. Aproveitamento', 
+                    'altura_edificacao': 'Altura',
+                    'recuo_frontal': 'Recuo Frontal',
+                    'recuos_laterais': 'Recuos Laterais',
+                    'recuo_fundos': 'Recuo Fundos',
+                    'taxa_permeabilidade': 'Área Permeável'
+                }.get(param_nome, param_nome)
+                
+                # Determinar status visual
+                conforme = validacao.get('conforme', False)
+                if conforme:
+                    status = 'Conforme' 
+                    cor = self.cores['conforme']
+                else:
+                    status = 'Não Conforme'
+                    cor = self.cores['nao_conforme']
+                
+                analises[nome_dashboard] = {
+                    'status': status,
+                    'valor_projeto': f"{validacao.get('valor_projeto', 0)}{validacao.get('unidade', '')}",
+                    'valor_limite': f"{validacao.get('limite_legal', 0)}{validacao.get('unidade', '')}",
+                    'valor_projeto_num': float(validacao.get('valor_projeto', 0)),
+                    'valor_limite_num': float(validacao.get('limite_legal', 0)),
+                    'unidade': validacao.get('unidade', ''),
+                    'tipo_limite': validacao.get('tipo_limite', ''),
+                    'observacao': validacao.get('observacao', ''),
+                    'detalhes': validacao.get('detalhes', ''),
+                    'cor': cor
+                }
+        
+        return analises
+    
     def criar_resumo_executivo(self, parametros_projeto: Dict, parametros_zona: Dict, zona: str) -> None:
         """Cria resumo executivo visual"""
         
         st.subheader("📋 Resumo Executivo")
         
-        analises = self._analisar_parametros(parametros_projeto, parametros_zona)
+        analises = self._analisar_parametros_oficiais(parametros_projeto, zona)
         
         # Contar status
         conformes = sum(1 for a in analises.values() if a['status'] == 'CONFORME')
@@ -317,9 +379,9 @@ def mostrar_dashboard_visual(parametros_projeto: Dict, parametros_zona: Dict, zo
     
     # Mostrar todos os componentes
     dashboard.criar_resumo_executivo(parametros_projeto, parametros_zona, zona)
-    dashboard.criar_semaforo_conformidade(parametros_projeto, parametros_zona)
-    dashboard.criar_gauge_aproveitamento(parametros_projeto, parametros_zona)
-    dashboard.criar_grafico_barras_comparativo(parametros_projeto, parametros_zona)
+    dashboard.criar_semaforo_conformidade(parametros_projeto, parametros_zona, zona)
+    dashboard.criar_gauge_aproveitamento(parametros_projeto, parametros_zona, zona)
+    dashboard.criar_grafico_barras_comparativo(parametros_projeto, parametros_zona, zona)
 
 if __name__ == "__main__":
     # Teste do dashboard
