@@ -11,3 +11,4 @@ geopandas<0.15.0
 shapely>=2.0.0,<2.1.0
 requests
 sentence-transformers
+geopy
