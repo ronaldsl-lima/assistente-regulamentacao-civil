@@ -22,8 +22,8 @@ import pypdf
 import pandas as pd
 from datetime import datetime
 from utils import encontrar_zona_por_endereco
-from detect_zone_enhanced import detect_zone_professional
-from enhanced_official_system import EnhancedOfficialSystem
+from gis_zone_detector import detect_zone_professional
+from test_zone_detection import create_streamlit_test_interface
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -178,8 +178,8 @@ class HeightConverter:
     
     # Padrões típicos de altura por pavimento
     ALTURA_PADRAO_PAVIMENTO = 3.0  # metros (conforme prática de mercado)
-    ALTURA_MINIMA_PAVIMENTO = 2.4   # metros (mínimo legal típico)
-    ALTURA_MAXIMA_PAVIMENTO = 4.0   # metros (máximo razoável)
+    ALTURA_MINIMA_PAVIMENTO = 2.4  # metros (mínimo legal típico)
+    ALTURA_MAXIMA_PAVIMENTO = 4.0  # metros (máximo razoável)
     
     @staticmethod
     def metros_para_pavimentos(metros: float) -> float:
@@ -587,7 +587,7 @@ class ReportGenerator:
     2. Identifique os limites da legislação nos documentos de contexto
     3. Compare numericamente cada parâmetro
     4. IMPORTANTE - Para ALTURA DA EDIFICAÇÃO: Se a legislação especifica limite em pavimentos e o projeto em metros (ou vice-versa), use a conversão: 1 pavimento = 3,0 metros (padrão técnico)
-    5. Use APENAS "[OK] Conforme" ou "[ERROR] Não Conforme" na coluna Conformidade
+    5. Use APENAS "✅ Conforme" ou "❌ Não Conforme" na coluna Conformidade
     6. Seja CONCLUSIVO no parecer final sobre aprovação/reprovação
     7. Na coluna "Observação" para altura, sempre explicite a conversão feita (ex: "8,5m = 2,8 pavimentos")
     
@@ -602,13 +602,13 @@ class ReportGenerator:
     
     | Parâmetro | Valor no Projeto | Valor Máximo Permitido | Conformidade | Observação |
     |---|---|---|---|---|
-    | Taxa de Ocupação | [valor]% | [valor]% | [OK]/[ERROR] | [obs] |
-    | Coeficiente de Aproveitamento | [valor] | [valor] | [OK]/[ERROR] | [obs] |
-    | Altura da Edificação | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
-    | Recuo Frontal | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
-    | Recuos Laterais | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
-    | Recuo de Fundos | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
-    | Área Permeável | [valor]% | [valor]% | [OK]/[ERROR] | [obs] |
+    | Taxa de Ocupação | [valor]% | [valor]% | ✅/❌ | [obs] |
+    | Coeficiente de Aproveitamento | [valor] | [valor] | ✅/❌ | [obs] |
+    | Altura da Edificação | [valor]m | [valor]m | ✅/❌ | [obs] |
+    | Recuo Frontal | [valor]m | [valor]m | ✅/❌ | [obs] |
+    | Recuos Laterais | [valor]m | [valor]m | ✅/❌ | [obs] |
+    | Recuo de Fundos | [valor]m | [valor]m | ✅/❌ | [obs] |
+    | Área Permeável | [valor]% | [valor]% | ✅/❌ | [obs] |
     
     ## 3. Parecer Final
     [Conclusão sobre conformidade - APROVADO ou REPROVADO]
@@ -650,11 +650,9 @@ class AnalysisEngine:
     
     def __init__(self):
         self.extractor = ParameterExtractor()
-        self.enhanced_official = EnhancedOfficialSystem()
     
     def run_analysis(self, cidade: str, endereco: str, memorial: str, 
-                    zona_manual: Optional[str] = None, usar_zona_manual: bool = False,
-                    inscricao: Optional[str] = None) -> Dict[str, Any]:
+                     zona_manual: Optional[str] = None, usar_zona_manual: bool = False) -> Dict[str, Any]:
         """Execução otimizada da análise"""
         
         try:
@@ -667,32 +665,24 @@ class AnalysisEngine:
                 zona_info = f"{zona} (INFORMADA MANUALMENTE)"
                 detection_details = "Zona informada pelo usuário"
             else:
-                # Usar sistema oficial aprimorado (Shapefile + Web Scraper + Sistema Local)
-                enhanced_result = self.enhanced_official.detect_zone_enhanced_official(endereco or "", inscricao or "")
-                zona = enhanced_result.zona
+                # Usar sistema GIS profissional
+                detection_result = detect_zone_professional(endereco or "")
+                zona = detection_result.zona
                 
-                # Criar informações detalhadas da detecção oficial aprimorada
-                if enhanced_result.confidence in ["OFICIAL_SHAPEFILE", "DUPLA_CONFIRMACAO"]:
-                    zona_info = f"{zona} (DETECTADA OFICIALMENTE)"
-                    detection_details = f"Zona oficial via {enhanced_result.source} - {enhanced_result.details}"
-                elif enhanced_result.confidence in ["SEHIS_CONFIRMADO", "SEHIS_CORRIGIDO"]:
-                    zona_info = f"{zona} (SEHIS CONFIRMADO)"
-                    detection_details = f"SEHIS detectado via {enhanced_result.consolidation_method} - {enhanced_result.details}"
-                elif enhanced_result.confidence in ["OFICIAL_WEB", "ESTIMADO_LOCAL"]:
+                # Criar informações detalhadas da detecção
+                if detection_result.confidence == "OFICIAL":
                     zona_info = f"{zona} (DETECTADA AUTOMATICAMENTE)"
-                    detection_details = f"Zona detectada via {enhanced_result.consolidation_method} - {enhanced_result.details}"
+                    detection_details = f"Zona detectada oficialmente via {detection_result.source}: {detection_result.details}"
+                elif detection_result.confidence == "ESTIMADA":
+                    zona_info = f"{zona} (ZONA ESTIMADA)"
+                    detection_details = f"Zona estimada via {detection_result.source}: {detection_result.details}"
                 else:
-                    zona_info = f"{zona} (VERIFICAÇÃO RECOMENDADA)"
-                    detection_details = f"Zona com baixa confiança - {enhanced_result.details}"
+                    zona_info = f"{zona} (ZONA PADRÃO)"
+                    detection_details = f"Zona padrão utilizada: {detection_result.details}"
                 
-                print(f"DEBUG SISTEMA OFICIAL - Zona final: {zona} | Confiança: {enhanced_result.confidence} | Método: {enhanced_result.consolidation_method}")
-                print(f"DEBUG SISTEMA OFICIAL - Fonte: {enhanced_result.source}")
-                if enhanced_result.official_zone:
-                    print(f"DEBUG SISTEMA OFICIAL - Shapefile oficial: {enhanced_result.official_zone} ({enhanced_result.official_name})")
-                if enhanced_result.web_scraper_zone:
-                    print(f"DEBUG SISTEMA OFICIAL - Web scraper: {enhanced_result.web_scraper_zone}")
-                if enhanced_result.local_zone:
-                    print(f"DEBUG SISTEMA OFICIAL - Sistema local: {enhanced_result.local_zone}")
+                print(f"DEBUG GIS - Zona detectada: {zona} | Confiança: {detection_result.confidence} | Fonte: {detection_result.source}")
+                if detection_result.coordinates:
+                    print(f"DEBUG GIS - Coordenadas: {detection_result.coordinates}")
             
             # Salvar informações de detecção para uso posterior
             zona_detection_info = zona_info
@@ -800,7 +790,7 @@ def configurar_pagina():
     """Configuração otimizada da página"""
     st.set_page_config(
         page_title="Assistente Regulatório v6.0",
-        page_icon="[BUILD]",
+        page_icon="🏗️",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -858,33 +848,19 @@ def criar_formulario_estruturado():
     if 'dados_projeto' not in st.session_state:
         st.session_state.dados_projeto = {}
     
-    # SOLUÇÃO GEMINI: Inicializar cidade com valor padrão PRIMEIRO
-    cidade = "curitiba"  # Valor padrão sempre definido
-    
-    try:
-        cidades = get_cidades_disponiveis()
-        if not cidades:
-            cidades = ["curitiba"]  # Fallback padrão
-    except Exception as e:
-        st.sidebar.error(f"Erro ao carregar cidades: {e}")
-        cidades = ["curitiba"]  # Fallback em caso de erro
+    cidades = get_cidades_disponiveis()
     
     # =============================================
     # SEÇÃO 1: Identificação do Projeto
     # =============================================
-    st.sidebar.title("[BUILD] Assistente Regulamentação Civil")
-    st.sidebar.header("[LOCATION] 1. Identificação do Projeto")
+    st.sidebar.title("🏗️ Assistente Regulamentação Civil")
+    st.sidebar.header("📍 1. Identificação do Projeto")
     
-    # Obter cidade do selectbox de forma direta e simples
-    cidade_selecionada = st.sidebar.selectbox(
+    cidade = st.sidebar.selectbox(
         "Prefeitura:", 
         cidades,
         help="Selecione a prefeitura responsável pela análise"
     )
-    
-    # Usar cidade selecionada ou manter padrão
-    if cidade_selecionada:
-        cidade = cidade_selecionada
     
     endereco = st.sidebar.text_input(
         "Endereço Completo do Imóvel:",
@@ -901,7 +877,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 2: Dados do Lote
     # =============================================
-    st.sidebar.header("[MEASURE] 2. Dados do Lote")
+    st.sidebar.header("📐 2. Dados do Lote")
     
     area_lote = st.sidebar.number_input(
         "Área Total do Lote (m²):",
@@ -929,7 +905,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 3: Restrições do Lote
     # =============================================
-    st.sidebar.header("[RESTRICT] 3. Restrições do Lote")
+    st.sidebar.header("🚫 3. Restrições do Lote")
     
     # APP - Área de Preservação Permanente
     possui_app = st.sidebar.checkbox(
@@ -964,7 +940,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 4: Parâmetros da Edificação Projetada
     # =============================================
-    st.sidebar.header("[HOUSE] 4. Parâmetros da Edificação")
+    st.sidebar.header("🏠 4. Parâmetros da Edificação")
     
     area_projecao = st.sidebar.number_input(
         "Área da Projeção da Edificação (m²):",
@@ -997,7 +973,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 5: Afastamentos (Recuos)
     # =============================================
-    st.sidebar.header("[SPACING] 5. Afastamentos (Recuos)")
+    st.sidebar.header("↔️ 5. Afastamentos (Recuos)")
     
     recuo_frontal = st.sidebar.number_input(
         "Recuo Frontal (m):",
@@ -1030,7 +1006,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 6: Parâmetros Adicionais
     # =============================================
-    st.sidebar.header("[ENVIRON] 6. Parâmetros Adicionais")
+    st.sidebar.header("🌱 6. Parâmetros Adicionais")
     
     area_permeavel = st.sidebar.number_input(
         "Área Permeável (m²):",
@@ -1049,7 +1025,7 @@ def criar_formulario_estruturado():
     # =============================================
     # OPÇÕES AVANÇADAS
     # =============================================
-    with st.sidebar.expander("[CONFIG] Opções Avançadas"):
+    with st.sidebar.expander("⚙️ Opções Avançadas"):
         zona_manual = st.sidebar.text_input(
             "Zona Manual:",
             placeholder="Ex: ZR-4, ZCC.4",
@@ -1105,7 +1081,7 @@ def criar_formulario_estruturado():
     # Mostrar validações
     if mensagens_erro:
         for erro in mensagens_erro:
-            st.sidebar.error(f"[WARNING] {erro}")
+            st.sidebar.error(f"⚠️ {erro}")
     
     # =============================================
     # BOTÃO DE ANÁLISE
@@ -1117,12 +1093,12 @@ def criar_formulario_estruturado():
     
     if not pode_analisar:
         if not pelo_menos_um_campo:
-            st.sidebar.warning("[WARNING] Preencha pelo menos um campo para análise")
+            st.sidebar.warning("⚠️ Preencha pelo menos um campo para análise")
         elif not validacoes_ok:
-            st.sidebar.warning("[WARNING] Corrija os erros de validação acima")
+            st.sidebar.warning("⚠️ Corrija os erros de validação acima")
     
     analisar = st.sidebar.button(
-        "[SEARCH] Analisar Conformidade",
+        "🔍 Analisar Conformidade",
         type="primary",
         use_container_width=True,
         disabled=not pode_analisar,
@@ -1133,7 +1109,7 @@ def criar_formulario_estruturado():
     # INFORMAÇÕES DO SISTEMA
     # =============================================
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### [INFO] Cálculos Automáticos")
+    st.sidebar.markdown("### ℹ️ Cálculos Automáticos")
     
     if area_lote > 0:
         col1, col2 = st.sidebar.columns(2)
@@ -1142,13 +1118,9 @@ def criar_formulario_estruturado():
     
     st.sidebar.info(f"""
     **Sistema:** v{CONFIG.VERSAO_APP}  
-    **Cidade:** Curitiba  
-    **Status:** [OK] Operacional
+    **Cidade:** {cidade}  
+    **Status:** ✅ Operacional
     """)
-    
-    # Validação final: se por algum motivo cidade ficou vazia, restaurar padrão
-    if not cidade or cidade == "":
-        cidade = "curitiba"
     
     # Retornar dados coletados
     return {
@@ -1232,19 +1204,13 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         
         # Executar análise
         try:
-            # Validação adicional de segurança
-            cidade_analise = dados.get('cidade', 'curitiba')
-            if not cidade_analise or cidade_analise is None:
-                cidade_analise = 'curitiba'
-                
             with st.spinner("Executando análise de conformidade urbanística..."):
                 resultado = st.session_state.engine.run_analysis(
-                    cidade=cidade_analise,
+                    cidade=dados['cidade'],
                     endereco=dados['endereco'],
                     memorial=memorial,
                     zona_manual=dados['zona_manual'],
-                    usar_zona_manual=dados['usar_zona_manual'],
-                    inscricao=dados['inscricao_imobiliaria']
+                    usar_zona_manual=dados['usar_zona_manual']
                 )
                 
                 # Adicionar dados do formulário ao resultado
@@ -1253,7 +1219,7 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
                 st.rerun()
                 
         except Exception as e:
-            st.error(f"[ERROR] Erro na análise: {str(e)}")
+            st.error(f"❌ Erro na análise: {str(e)}")
             logger.error(f"Erro completo: {e}", exc_info=True)
     
     # Exibir resultados
@@ -1262,33 +1228,33 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         
         # Header com status aprimorado
         zona_display = resultado.get('zona_info', resultado['zona'])
-        st.header(f"[REPORT] Relatório: Zona {zona_display}")
+        st.header(f"📋 Relatório: Zona {zona_display}")
         
         # Mostrar informações de detecção se disponível
         if 'zona_detection_details' in resultado:
-            with st.expander("[SEARCH] Informações da Detecção de Zona", expanded=False):
+            with st.expander("🔍 Informações da Detecção de Zona", expanded=False):
                 st.info(resultado['zona_detection_details'])
                 
                 # Mostrar coordenadas se disponível (buscar no log)
                 if "Coordenadas GPS" in resultado['zona_detection_details']:
-                    st.success("[OK] **Detecção Oficial:** Zona identificada com precisão geográfica usando sistema GIS profissional")
+                    st.success("✅ **Detecção Oficial:** Zona identificada com precisão geográfica usando sistema GIS profissional")
                 elif "análise textual" in resultado['zona_detection_details'].lower():
-                    st.warning("[WARNING] **Zona Estimada:** Baseada em análise textual do endereço")
+                    st.warning("⚠️ **Zona Estimada:** Baseada em análise textual do endereço")
                 elif "padrão" in resultado['zona_detection_details'].lower():
-                    st.info("[REFRESH] **Zona Padrão:** Sistema utilizou zona residencial padrão para análise")
+                    st.info("🔄 **Zona Padrão:** Sistema utilizou zona residencial padrão para análise")
                 elif "manual" in resultado['zona_detection_details'].lower():
-                    st.success("[OK] **Zona Manual:** Informada pelo usuário")
+                    st.success("✅ **Zona Manual:** Informada pelo usuário")
         
         parecer = resultado['resultado']
         if "não conformidade" in parecer.lower() or "reprovado" in parecer.lower():
-            st.error("[ERROR] **Projeto REPROVADO**")
+            st.error("❌ **Projeto REPROVADO**")
         elif "conformidade" in parecer.lower() or "aprovado" in parecer.lower():
-            st.success("[OK] **Projeto APROVADO**")
+            st.success("✅ **Projeto APROVADO**")
         else:
-            st.warning("[WARNING] **Análise Pendente**")
+            st.warning("⚠️ **Análise Pendente**")
         
         # Tabs do resultado
-        tab1, tab2, tab3 = st.tabs(["[CHART] Relatório", "[DOCS] Documentos", "[DEBUG] Debug"])
+        tab1, tab2, tab3 = st.tabs(["📊 Relatório", "📄 Documentos", "🔧 Debug"])
         
         with tab1:
             st.markdown(resultado['resultado'])
@@ -1297,13 +1263,13 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
-                    "[DOWNLOAD] Download TXT",
+                    "📥 Download TXT",
                     resultado['resultado'],
                     f"relatorio_{resultado['zona']}.txt",
                     "text/plain"
                 )
             with col2:
-                if st.button("[REFRESH] Nova Análise"):
+                if st.button("🔄 Nova Análise"):
                     st.session_state.analysis_result = None
                     st.rerun()
         
@@ -1319,16 +1285,16 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
     
     else:
         # Welcome page
-        st.title("[BUILD] Assistente Regulatório v6.0")
+        st.title("🏗️ Assistente Regulatório v6.0")
         st.markdown("### Análise inteligente de conformidade urbanística")
         st.markdown("---")
-        st.info("[REPORT] Configure a análise na barra lateral para começar")
+        st.info("📋 Configure a análise na barra lateral para começar")
         
         # Info compacta
         cidade = dados.get('cidade', '')
         if cidade and (CONFIG.PASTA_DADOS_RAIZ / cidade.lower()).exists():
             st.markdown("---")
-            st.markdown(f"[CHART] {cidade.title()} • v{CONFIG.VERSAO_APP} • [OK] Ativo")
+            st.markdown(f"📊 {cidade.title()} • v{CONFIG.VERSAO_APP} • ✅ Ativo")
 
 if __name__ == "__main__":
     load_dotenv()
