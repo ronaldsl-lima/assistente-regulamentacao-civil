@@ -23,7 +23,6 @@ import pandas as pd
 from datetime import datetime
 from utils import encontrar_zona_por_endereco
 from gis_zone_detector import detect_zone_professional
-from test_zone_detection import create_streamlit_test_interface
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
