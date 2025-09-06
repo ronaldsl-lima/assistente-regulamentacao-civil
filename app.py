@@ -587,7 +587,7 @@ class ReportGenerator:
     2. Identifique os limites da legislação nos documentos de contexto
     3. Compare numericamente cada parâmetro
     4. IMPORTANTE - Para ALTURA DA EDIFICAÇÃO: Se a legislação especifica limite em pavimentos e o projeto em metros (ou vice-versa), use a conversão: 1 pavimento = 3,0 metros (padrão técnico)
-    5. Use APENAS "✅ Conforme" ou "❌ Não Conforme" na coluna Conformidade
+    5. Use APENAS "[OK] Conforme" ou "[ERROR] Não Conforme" na coluna Conformidade
     6. Seja CONCLUSIVO no parecer final sobre aprovação/reprovação
     7. Na coluna "Observação" para altura, sempre explicite a conversão feita (ex: "8,5m = 2,8 pavimentos")
     
@@ -602,13 +602,13 @@ class ReportGenerator:
     
     | Parâmetro | Valor no Projeto | Valor Máximo Permitido | Conformidade | Observação |
     |---|---|---|---|---|
-    | Taxa de Ocupação | [valor]% | [valor]% | ✅/❌ | [obs] |
-    | Coeficiente de Aproveitamento | [valor] | [valor] | ✅/❌ | [obs] |
-    | Altura da Edificação | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Recuo Frontal | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Recuos Laterais | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Recuo de Fundos | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Área Permeável | [valor]% | [valor]% | ✅/❌ | [obs] |
+    | Taxa de Ocupação | [valor]% | [valor]% | [OK]/[ERROR] | [obs] |
+    | Coeficiente de Aproveitamento | [valor] | [valor] | [OK]/[ERROR] | [obs] |
+    | Altura da Edificação | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
+    | Recuo Frontal | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
+    | Recuos Laterais | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
+    | Recuo de Fundos | [valor]m | [valor]m | [OK]/[ERROR] | [obs] |
+    | Área Permeável | [valor]% | [valor]% | [OK]/[ERROR] | [obs] |
     
     ## 3. Parecer Final
     [Conclusão sobre conformidade - APROVADO ou REPROVADO]
@@ -800,7 +800,7 @@ def configurar_pagina():
     """Configuração otimizada da página"""
     st.set_page_config(
         page_title="Assistente Regulatório v6.0",
-        page_icon="🏗️",
+        page_icon="[BUILD]",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -858,19 +858,33 @@ def criar_formulario_estruturado():
     if 'dados_projeto' not in st.session_state:
         st.session_state.dados_projeto = {}
     
-    cidades = get_cidades_disponiveis()
+    # SOLUÇÃO GEMINI: Inicializar cidade com valor padrão PRIMEIRO
+    cidade = "curitiba"  # Valor padrão sempre definido
+    
+    try:
+        cidades = get_cidades_disponiveis()
+        if not cidades:
+            cidades = ["curitiba"]  # Fallback padrão
+    except Exception as e:
+        st.sidebar.error(f"Erro ao carregar cidades: {e}")
+        cidades = ["curitiba"]  # Fallback em caso de erro
     
     # =============================================
     # SEÇÃO 1: Identificação do Projeto
     # =============================================
-    st.sidebar.title("🏗️ Assistente Regulamentação Civil")
-    st.sidebar.header("📍 1. Identificação do Projeto")
+    st.sidebar.title("[BUILD] Assistente Regulamentação Civil")
+    st.sidebar.header("[LOCATION] 1. Identificação do Projeto")
     
-    cidade = st.sidebar.selectbox(
+    # Obter cidade do selectbox de forma direta e simples
+    cidade_selecionada = st.sidebar.selectbox(
         "Prefeitura:", 
         cidades,
         help="Selecione a prefeitura responsável pela análise"
     )
+    
+    # Usar cidade selecionada ou manter padrão
+    if cidade_selecionada:
+        cidade = cidade_selecionada
     
     endereco = st.sidebar.text_input(
         "Endereço Completo do Imóvel:",
@@ -887,7 +901,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 2: Dados do Lote
     # =============================================
-    st.sidebar.header("📐 2. Dados do Lote")
+    st.sidebar.header("[MEASURE] 2. Dados do Lote")
     
     area_lote = st.sidebar.number_input(
         "Área Total do Lote (m²):",
@@ -915,7 +929,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 3: Restrições do Lote
     # =============================================
-    st.sidebar.header("🚫 3. Restrições do Lote")
+    st.sidebar.header("[RESTRICT] 3. Restrições do Lote")
     
     # APP - Área de Preservação Permanente
     possui_app = st.sidebar.checkbox(
@@ -950,7 +964,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 4: Parâmetros da Edificação Projetada
     # =============================================
-    st.sidebar.header("🏠 4. Parâmetros da Edificação")
+    st.sidebar.header("[HOUSE] 4. Parâmetros da Edificação")
     
     area_projecao = st.sidebar.number_input(
         "Área da Projeção da Edificação (m²):",
@@ -983,7 +997,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 5: Afastamentos (Recuos)
     # =============================================
-    st.sidebar.header("↔️ 5. Afastamentos (Recuos)")
+    st.sidebar.header("[SPACING] 5. Afastamentos (Recuos)")
     
     recuo_frontal = st.sidebar.number_input(
         "Recuo Frontal (m):",
@@ -1016,7 +1030,7 @@ def criar_formulario_estruturado():
     # =============================================
     # SEÇÃO 6: Parâmetros Adicionais
     # =============================================
-    st.sidebar.header("🌱 6. Parâmetros Adicionais")
+    st.sidebar.header("[ENVIRON] 6. Parâmetros Adicionais")
     
     area_permeavel = st.sidebar.number_input(
         "Área Permeável (m²):",
@@ -1035,7 +1049,7 @@ def criar_formulario_estruturado():
     # =============================================
     # OPÇÕES AVANÇADAS
     # =============================================
-    with st.sidebar.expander("⚙️ Opções Avançadas"):
+    with st.sidebar.expander("[CONFIG] Opções Avançadas"):
         zona_manual = st.sidebar.text_input(
             "Zona Manual:",
             placeholder="Ex: ZR-4, ZCC.4",
@@ -1091,7 +1105,7 @@ def criar_formulario_estruturado():
     # Mostrar validações
     if mensagens_erro:
         for erro in mensagens_erro:
-            st.sidebar.error(f"⚠️ {erro}")
+            st.sidebar.error(f"[WARNING] {erro}")
     
     # =============================================
     # BOTÃO DE ANÁLISE
@@ -1103,12 +1117,12 @@ def criar_formulario_estruturado():
     
     if not pode_analisar:
         if not pelo_menos_um_campo:
-            st.sidebar.warning("⚠️ Preencha pelo menos um campo para análise")
+            st.sidebar.warning("[WARNING] Preencha pelo menos um campo para análise")
         elif not validacoes_ok:
-            st.sidebar.warning("⚠️ Corrija os erros de validação acima")
+            st.sidebar.warning("[WARNING] Corrija os erros de validação acima")
     
     analisar = st.sidebar.button(
-        "🔍 Analisar Conformidade",
+        "[SEARCH] Analisar Conformidade",
         type="primary",
         use_container_width=True,
         disabled=not pode_analisar,
@@ -1119,7 +1133,7 @@ def criar_formulario_estruturado():
     # INFORMAÇÕES DO SISTEMA
     # =============================================
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### ℹ️ Cálculos Automáticos")
+    st.sidebar.markdown("### [INFO] Cálculos Automáticos")
     
     if area_lote > 0:
         col1, col2 = st.sidebar.columns(2)
@@ -1129,8 +1143,12 @@ def criar_formulario_estruturado():
     st.sidebar.info(f"""
     **Sistema:** v{CONFIG.VERSAO_APP}  
     **Cidade:** Curitiba  
-    **Status:** ✅ Operacional
+    **Status:** [OK] Operacional
     """)
+    
+    # Validação final: se por algum motivo cidade ficou vazia, restaurar padrão
+    if not cidade or cidade == "":
+        cidade = "curitiba"
     
     # Retornar dados coletados
     return {
@@ -1214,9 +1232,14 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         
         # Executar análise
         try:
+            # Validação adicional de segurança
+            cidade_analise = dados.get('cidade', 'curitiba')
+            if not cidade_analise or cidade_analise is None:
+                cidade_analise = 'curitiba'
+                
             with st.spinner("Executando análise de conformidade urbanística..."):
                 resultado = st.session_state.engine.run_analysis(
-                    cidade=cidade,
+                    cidade=cidade_analise,
                     endereco=dados['endereco'],
                     memorial=memorial,
                     zona_manual=dados['zona_manual'],
@@ -1230,7 +1253,7 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
                 st.rerun()
                 
         except Exception as e:
-            st.error(f"❌ Erro na análise: {str(e)}")
+            st.error(f"[ERROR] Erro na análise: {str(e)}")
             logger.error(f"Erro completo: {e}", exc_info=True)
     
     # Exibir resultados
@@ -1239,33 +1262,33 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         
         # Header com status aprimorado
         zona_display = resultado.get('zona_info', resultado['zona'])
-        st.header(f"📋 Relatório: Zona {zona_display}")
+        st.header(f"[REPORT] Relatório: Zona {zona_display}")
         
         # Mostrar informações de detecção se disponível
         if 'zona_detection_details' in resultado:
-            with st.expander("🔍 Informações da Detecção de Zona", expanded=False):
+            with st.expander("[SEARCH] Informações da Detecção de Zona", expanded=False):
                 st.info(resultado['zona_detection_details'])
                 
                 # Mostrar coordenadas se disponível (buscar no log)
                 if "Coordenadas GPS" in resultado['zona_detection_details']:
-                    st.success("✅ **Detecção Oficial:** Zona identificada com precisão geográfica usando sistema GIS profissional")
+                    st.success("[OK] **Detecção Oficial:** Zona identificada com precisão geográfica usando sistema GIS profissional")
                 elif "análise textual" in resultado['zona_detection_details'].lower():
-                    st.warning("⚠️ **Zona Estimada:** Baseada em análise textual do endereço")
+                    st.warning("[WARNING] **Zona Estimada:** Baseada em análise textual do endereço")
                 elif "padrão" in resultado['zona_detection_details'].lower():
-                    st.info("🔄 **Zona Padrão:** Sistema utilizou zona residencial padrão para análise")
+                    st.info("[REFRESH] **Zona Padrão:** Sistema utilizou zona residencial padrão para análise")
                 elif "manual" in resultado['zona_detection_details'].lower():
-                    st.success("✅ **Zona Manual:** Informada pelo usuário")
+                    st.success("[OK] **Zona Manual:** Informada pelo usuário")
         
         parecer = resultado['resultado']
         if "não conformidade" in parecer.lower() or "reprovado" in parecer.lower():
-            st.error("❌ **Projeto REPROVADO**")
+            st.error("[ERROR] **Projeto REPROVADO**")
         elif "conformidade" in parecer.lower() or "aprovado" in parecer.lower():
-            st.success("✅ **Projeto APROVADO**")
+            st.success("[OK] **Projeto APROVADO**")
         else:
-            st.warning("⚠️ **Análise Pendente**")
+            st.warning("[WARNING] **Análise Pendente**")
         
         # Tabs do resultado
-        tab1, tab2, tab3 = st.tabs(["📊 Relatório", "📄 Documentos", "🔧 Debug"])
+        tab1, tab2, tab3 = st.tabs(["[CHART] Relatório", "[DOCS] Documentos", "[DEBUG] Debug"])
         
         with tab1:
             st.markdown(resultado['resultado'])
@@ -1274,13 +1297,13 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
-                    "📥 Download TXT",
+                    "[DOWNLOAD] Download TXT",
                     resultado['resultado'],
                     f"relatorio_{resultado['zona']}.txt",
                     "text/plain"
                 )
             with col2:
-                if st.button("🔄 Nova Análise"):
+                if st.button("[REFRESH] Nova Análise"):
                     st.session_state.analysis_result = None
                     st.rerun()
         
@@ -1296,16 +1319,16 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
     
     else:
         # Welcome page
-        st.title("🏗️ Assistente Regulatório v6.0")
+        st.title("[BUILD] Assistente Regulatório v6.0")
         st.markdown("### Análise inteligente de conformidade urbanística")
         st.markdown("---")
-        st.info("📋 Configure a análise na barra lateral para começar")
+        st.info("[REPORT] Configure a análise na barra lateral para começar")
         
         # Info compacta
         cidade = dados.get('cidade', '')
         if cidade and (CONFIG.PASTA_DADOS_RAIZ / cidade.lower()).exists():
             st.markdown("---")
-            st.markdown(f"📊 {cidade.title()} • v{CONFIG.VERSAO_APP} • ✅ Ativo")
+            st.markdown(f"[CHART] {cidade.title()} • v{CONFIG.VERSAO_APP} • [OK] Ativo")
 
 if __name__ == "__main__":
     load_dotenv()
