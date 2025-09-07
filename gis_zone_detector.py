@@ -78,7 +78,7 @@ class ProfessionalZoneDetector:
             # Zonas Especiais - mapear para residencial apropriado
             'SE-LV': 'ZR-4',   # Setor Especial Linha Verde
             'POLO-LV': 'ZR-4', # Polo Linha Verde
-            'SEHIS': 'ZR-1',   # Setor Habitacional de Interesse Social
+            'SEHIS': 'SEHIS',  # Setor Habitacional de Interesse Social - MANTER ORIGINAL
             
             # Eixos - mapear para uso apropriado
             'EAC': 'ZUM-2',    # Eixo de Adensamento Central

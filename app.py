@@ -22,7 +22,14 @@ import pypdf
 import pandas as pd
 from datetime import datetime
 from utils import encontrar_zona_por_endereco
+
+# Forçar reload do módulo gis_zone_detector para garantir versão corrigida
+import importlib
+import gis_zone_detector
+importlib.reload(gis_zone_detector)
 from gis_zone_detector import detect_zone_professional
+
+from zoneamento_integration import enhanced_zone_lookup
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -172,6 +179,40 @@ class ProjectDataCalculator:
         
         return erros
 
+@dataclass
+class ParameterLimit:
+    """Representa um limite de parâmetro com min/max"""
+    name: str
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    unit: str = ""
+    
+    def validate(self, project_value: float) -> Tuple[bool, str]:
+        """Valida se valor do projeto está dentro dos limites"""
+        errors = []
+        
+        if self.min_value is not None and project_value < self.min_value:
+            errors.append(f"Valor abaixo do mínimo ({self.min_value}{self.unit})")
+        
+        if self.max_value is not None and project_value > self.max_value:
+            errors.append(f"Valor acima do máximo ({self.max_value}{self.unit})")
+        
+        is_conform = len(errors) == 0
+        observation = " | ".join(errors) if errors else "Dentro dos limites"
+        
+        return is_conform, observation
+    
+    def get_limit_display(self) -> str:
+        """Retorna string formatada do limite para exibição"""
+        if self.min_value is not None and self.max_value is not None:
+            return f"{self.min_value}{self.unit} a {self.max_value}{self.unit}"
+        elif self.min_value is not None:
+            return f"Mín: {self.min_value}{self.unit}"
+        elif self.max_value is not None:
+            return f"Máx: {self.max_value}{self.unit}"
+        else:
+            return "Não especificado"
+
 class HeightConverter:
     """Conversor inteligente entre metros e pavimentos"""
     
@@ -246,13 +287,88 @@ class ParameterExtractor:
     """Extrator otimizado de parâmetros"""
     
     PATTERNS = {
+        # Padrões existentes (gerais) - por padrão tratados como máximos
         "taxa_ocupacao": re.compile(r"taxa\s+de\s+ocupa[çc][ãa]o\s*(?:máxima)?[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE),
         "coeficiente_aproveitamento": re.compile(r"coeficiente\s+de\s+aproveitamento\s*(?:máximo)?[:\s]*(\d+[.,]?\d*)", re.IGNORECASE),
         "altura_edificacao": re.compile(r"altura\s+(?:da\s+edificação|máxima)[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
         "recuo_frontal": re.compile(r"recuo\s+frontal[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
         "recuos_laterais": re.compile(r"recuos?\s+laterais?[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
         "recuo_fundos": re.compile(r"recuos?\s+(?:de\s+)?fundos?[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
-        "area_permeavel": re.compile(r"[áa]rea\s+perm[eé][aá]vel[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE)
+        "area_permeavel": re.compile(r"[áa]rea\s+perm[eé][aá]vel[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        
+        # NOVOS PADRÕES para valores mínimos
+        "taxa_ocupacao_min": re.compile(r"taxa\s+de\s+ocupa[çc][ãa]o\s+mínima[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        "coeficiente_aproveitamento_min": re.compile(r"coeficiente\s+de\s+aproveitamento\s+mínimo[:\s]*(\d+[.,]?\d*)", re.IGNORECASE),
+        "altura_edificacao_min": re.compile(r"altura\s+mínima[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "recuo_frontal_min": re.compile(r"recuo\s+frontal\s+mínimo[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "recuos_laterais_min": re.compile(r"recuos?\s+laterais?\s+mínimo[s]?[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "recuo_fundos_min": re.compile(r"recuos?\s+(?:de\s+)?fundos?\s+mínimo[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "area_permeavel_min": re.compile(r"[áa]rea\s+perm[eé][aá]vel\s+mínima[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        
+        # NOVOS PADRÕES para valores máximos (explícitos)
+        "taxa_ocupacao_max": re.compile(r"taxa\s+de\s+ocupa[çc][ãa]o\s+máxima[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        "coeficiente_aproveitamento_max": re.compile(r"coeficiente\s+de\s+aproveitamento\s+máximo[:\s]*(\d+[.,]?\d*)", re.IGNORECASE),
+        "altura_edificacao_max": re.compile(r"altura\s+máxima[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "recuo_frontal_max": re.compile(r"recuo\s+frontal\s+máximo[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "recuos_laterais_max": re.compile(r"recuos?\s+laterais?\s+máximo[s]?[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "recuo_fundos_max": re.compile(r"recuos?\s+(?:de\s+)?fundos?\s+máximo[:\s]*(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "area_permeavel_max": re.compile(r"[áa]rea\s+perm[eé][aá]vel\s+máxima[:\s]*(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        
+        # Padrões para faixas (ex: "entre X e Y", "de X a Y")
+        "taxa_ocupacao_faixa": re.compile(r"taxa\s+de\s+ocupa[çc][ãa]o\s+(?:entre|de)\s+(\d+[.,]?\d*)\s*%?\s+(?:e|a|até)\s+(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        "coeficiente_aproveitamento_faixa": re.compile(r"coeficiente\s+de\s+aproveitamento\s+(?:entre|de)\s+(\d+[.,]?\d*)\s+(?:e|a|até)\s+(\d+[.,]?\d*)", re.IGNORECASE),
+        "altura_edificacao_faixa": re.compile(r"altura\s+(?:entre|de)\s+(\d+[.,]?\d*)\s*m?\s+(?:e|a|até)\s+(\d+[.,]?\d*)\s*m", re.IGNORECASE),
+        "area_permeavel_faixa": re.compile(r"[áa]rea\s+perm[eé][aá]vel\s+(?:entre|de)\s+(\d+[.,]?\d*)\s*%?\s+(?:e|a|até)\s+(\d+[.,]?\d*)\s*%", re.IGNORECASE),
+        
+        # NOVOS PADRÕES específicos para dados de Curitiba encontrados no Excel
+        
+        # Padrões especiais para taxa de ocupação com exceções
+        "taxa_ocupacao_com_excecao": re.compile(r"(\d+)%\s*\(.*?(\d+)%.*?(lote|menor)", re.IGNORECASE),
+        
+        # Padrões específicos encontrados nos dados oficiais
+        "taxa_ocupacao_embasamento": re.compile(r"(\d+)%\s*\(.*?(\d+)%.*?embasamento", re.IGNORECASE),
+        "taxa_ocupacao_subsolo_terreo": re.compile(r"(\d+)%\s*\(subsolo.*?t[eé]rreo.*?2.*?\).*?(\d+)%.*?demais", re.IGNORECASE),
+        "taxa_ocupacao_faixa_historica": re.compile(r"(\d+)[-–](\d+)%", re.IGNORECASE),
+        "taxa_ocupacao_multiplos_pavimentos": re.compile(r"(\d+)%.*?\(.*?(\d+)%.*?(subsolo|t[eé]rreo|pavimento)", re.IGNORECASE),
+        
+        # Padrões para zonas especiais
+        "norma_propria": re.compile(r"definido\s+por\s+norma\s+pr[óo]pria", re.IGNORECASE),
+        "ate_100_embasamento": re.compile(r"at[eé]\s+100%.*?embasamento", re.IGNORECASE),
+        "ate_100_no_embasamento": re.compile(r"at[eé]\s+100%\s+no\s+embasamento", re.IGNORECASE),
+        
+        # Padrões para altura em pavimentos específicos
+        "altura_pavimentos": re.compile(r"(?:até\s+)?(\d+)\s+pav", re.IGNORECASE),
+        "altura_pavimentos_max": re.compile(r"até\s+(\d+)\s+pav", re.IGNORECASE),
+        "altura_pavimentos_excecao": re.compile(r"(\d+)\s+pav.*?(\d+)\s+pav.*?(frente|enc|arterial)", re.IGNORECASE),
+        
+        # Padrões para "conforme quadro" e referências
+        "conforme_quadro": re.compile(r"conforme\s+quadro", re.IGNORECASE),
+        "quadro_proprio": re.compile(r"quadro\s+pr[óo]prio", re.IGNORECASE),
+        
+        # Padrões para altura livre e alta verticalização
+        "altura_livre": re.compile(r"altura\s+livre", re.IGNORECASE),
+        "alta_verticalizacao": re.compile(r"alta\s+verticaliza[çc][ãa]o", re.IGNORECASE),
+        
+        # Padrões para afastamentos especiais (H/6, H/5, etc.)
+        "afastamento_h_formula": re.compile(r"H/(\d+)", re.IGNORECASE),
+        
+        # Padrões para usos mistos e especiais
+        "uso_misto": re.compile(r"uso\s+misto", re.IGNORECASE),
+        "comercio_servico": re.compile(r"com[eé]rcio.*?servi[çc]o", re.IGNORECASE),
+        "habitacao_unifamiliar": re.compile(r"habita[çc][ãa]o\s+unifamiliar", re.IGNORECASE),
+        "habitacao_coletiva": re.compile(r"habita[çc][ãa]o\s+coletiva", re.IGNORECASE),
+        
+        # Padrões para lotes especiais
+        "lote_dimensoes": re.compile(r"(\d+(?:[.,]\d+)?)\s*m?\s*x\s*(\d+(?:[.,]\d+)?)\s*m", re.IGNORECASE),
+        
+        # Padrões para porte em m²
+        "porte_m2": re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2]", re.IGNORECASE),
+        "porte_m2_comercio": re.compile(r"(\d+(?:[.,]\d+)?)\s*m[²2].*?(com[eé]rcio|servi[çc]o)", re.IGNORECASE),
+        
+        # Padrões para densidade
+        "media_densidade": re.compile(r"m[eé]dia\s+densidade", re.IGNORECASE),
+        "baixa_densidade": re.compile(r"baixa\s+densidade", re.IGNORECASE),
+        "alta_densidade": re.compile(r"alta\s+densidade", re.IGNORECASE),
     }
     
     @classmethod
@@ -263,22 +379,415 @@ class ParameterExtractor:
             match = pattern.search(texto)
             if match:
                 try:
-                    valor = float(match.group(1).replace(',', '.'))
-                    parametros[param] = valor
-                    
-                    # Tratamento especial para altura da edificação
-                    if param == "altura_edificacao":
-                        altura_info = HeightConverter.normalizar_altura(valor)
-                        parametros["altura_metros"] = altura_info['metros']
-                        parametros["altura_pavimentos"] = round(altura_info['pavimentos'], 1)
-                        parametros["altura_unidade_original"] = altura_info['unidade_original']
+                    # Tratamento especial para padrões de faixa (têm 2 grupos)
+                    if "_faixa" in param:
+                        valor_min = float(match.group(1).replace(',', '.'))
+                        valor_max = float(match.group(2).replace(',', '.'))
+                        
+                        # Extrair nome base do parâmetro
+                        base_param = param.replace("_faixa", "")
+                        
+                        # Definir valores min e max
+                        parametros[f"{base_param}_min"] = valor_min
+                        parametros[f"{base_param}_max"] = valor_max
+                        parametros[f"{base_param}_faixa_detectada"] = True
+                        
+                    else:
+                        # Padrões normais (1 grupo)
+                        valor = float(match.group(1).replace(',', '.'))
+                        parametros[param] = valor
+                        
+                        # Tratamento especial para altura da edificação
+                        if param == "altura_edificacao":
+                            altura_info = HeightConverter.normalizar_altura(valor)
+                            parametros["altura_metros"] = altura_info['metros']
+                            parametros["altura_pavimentos"] = round(altura_info['pavimentos'], 1)
+                            parametros["altura_unidade_original"] = altura_info['unidade_original']
                         
                 except ValueError:
                     parametros[param] = None
             else:
-                parametros[param] = None
+                if "_faixa" not in param:  # Só define None para padrões não-faixa
+                    parametros[param] = None
         
         return parametros
+
+class ParameterLimitExtractor:
+    """Extrai limites min/max dos documentos"""
+    
+    @staticmethod
+    def extract_limits(text: str) -> Dict[str, ParameterLimit]:
+        """Extrai todos os limites de parâmetros do texto"""
+        limits = {}
+        
+        # Taxa de Ocupação
+        limits['taxa_ocupacao'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'taxa_ocupacao', '%'
+        )
+        
+        # Coeficiente de Aproveitamento  
+        limits['coeficiente_aproveitamento'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'coeficiente_aproveitamento', ''
+        )
+        
+        # Área Permeável
+        limits['area_permeavel'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'area_permeavel', '%'
+        )
+        
+        # Altura da Edificação
+        limits['altura_edificacao'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'altura_edificacao', 'm'
+        )
+        
+        # Recuo Frontal
+        limits['recuo_frontal'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'recuo_frontal', 'm'
+        )
+        
+        # Recuos Laterais
+        limits['recuos_laterais'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'recuos_laterais', 'm'
+        )
+        
+        # Recuo de Fundos
+        limits['recuo_fundos'] = ParameterLimitExtractor._extract_parameter_limit(
+            text, 'recuo_fundos', 'm'
+        )
+        
+        return limits
+    
+    @staticmethod
+    def _extract_parameter_limit(text: str, param_name: str, unit: str) -> ParameterLimit:
+        """Extrai limite min/max de um parâmetro específico"""
+        # Extrair parâmetros do texto
+        parametros = ParameterExtractor.extract(text)
+        
+        # Buscar valores min e max específicos
+        min_key = f"{param_name}_min"
+        max_key = f"{param_name}_max"
+        
+        min_val = parametros.get(min_key)
+        max_val = parametros.get(max_key)
+        
+        # Se não encontrou min/max específicos, usar padrão geral
+        if min_val is None and max_val is None:
+            general_val = parametros.get(param_name)
+            if general_val is not None:
+                max_val = general_val  # Por padrão, valor geral é tratado como máximo
+        
+        return ParameterLimit(
+            name=param_name,
+            min_value=min_val,
+            max_value=max_val,
+            unit=unit
+        )
+
+class ZoneDataManager:
+    """Gerenciador de dados oficiais de zoneamento"""
+    
+    def __init__(self, json_file_path: str = None, ocupacao_file_path: str = None):
+        self.json_file_path = json_file_path or "zoneamento_curitiba_completo.json"
+        self.ocupacao_file_path = ocupacao_file_path or "taxa_ocupacao_detalhada.json"
+        self.zones_data = self._load_zones_data()
+        self.ocupacao_data = self._load_ocupacao_data()
+    
+    def _load_zones_data(self) -> Dict[str, Any]:
+        """Carrega dados de zoneamento do arquivo JSON"""
+        try:
+            if not pathlib.Path(self.json_file_path).exists():
+                logger.warning(f"Arquivo {self.json_file_path} não encontrado")
+                return {}
+            
+            with open(self.json_file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Erro ao carregar dados de zoneamento: {e}")
+            return {}
+    
+    def _load_ocupacao_data(self) -> Dict[str, Any]:
+        """Carrega dados detalhados de taxa de ocupação"""
+        try:
+            if not pathlib.Path(self.ocupacao_file_path).exists():
+                logger.warning(f"Arquivo {self.ocupacao_file_path} não encontrado")
+                return {}
+            
+            with open(self.ocupacao_file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Erro ao carregar dados de ocupação: {e}")
+            return {}
+    
+    def get_zone_data(self, zona_name: str) -> Dict[str, Any]:
+        """Obtém dados oficiais de uma zona específica, incorporando dados de ocupação detalhados"""
+        # Normalizar nome da zona para busca
+        zona_normalized = self._normalize_zone_name(zona_name)
+        
+        # Busca direta nos dados principais
+        zone_data = {}
+        if zona_normalized in self.zones_data:
+            zone_data = self.zones_data[zona_normalized].copy()
+        else:
+            # Busca por variações
+            for zone_key in self.zones_data.keys():
+                if self._zones_match(zona_normalized, zone_key):
+                    zone_data = self.zones_data[zone_key].copy()
+                    break
+        
+        # Incorporar dados detalhados de taxa de ocupação se disponíveis
+        ocupacao_detalhada = self.get_ocupacao_data(zona_normalized)
+        if ocupacao_detalhada:
+            # Substituir dados básicos de TO pelos dados detalhados
+            zone_data['taxa_ocupacao_detalhada'] = ocupacao_detalhada['taxa_ocupacao']
+            zone_data['grupo_ocupacao'] = ocupacao_detalhada.get('grupo', '')
+            zone_data['observacoes_ocupacao'] = ocupacao_detalhada.get('observacoes', [])
+            
+            # Atualizar dados básicos de taxa de ocupação
+            if 'taxa_ocupacao' in zone_data:
+                # Manter estrutura original mas adicionar dados enriquecidos
+                zone_data['taxa_ocupacao']['dados_detalhados'] = ocupacao_detalhada['taxa_ocupacao']
+        
+        return zone_data
+    
+    def get_ocupacao_data(self, zona_name: str) -> Dict[str, Any]:
+        """Obtém dados detalhados de taxa de ocupação para uma zona"""
+        zona_normalized = self._normalize_zone_name(zona_name)
+        
+        # Busca direta
+        if zona_normalized in self.ocupacao_data:
+            return self.ocupacao_data[zona_normalized]
+        
+        # Busca por variações
+        for zone_key in self.ocupacao_data.keys():
+            if self._zones_match(zona_normalized, zone_key):
+                return self.ocupacao_data[zone_key]
+        
+        return {}
+    
+    def _normalize_zone_name(self, zona_name: str) -> str:
+        """Normaliza nome da zona para busca"""
+        if not zona_name:
+            return ""
+        
+        # Remover espaços e converter para maiúsculo
+        normalized = zona_name.upper().strip()
+        
+        # Variações conhecidas
+        zone_mappings = {
+            'ZCC.4': 'ZCC',
+            'ZR1': 'ZR-1', 'ZR2': 'ZR-2', 'ZR3': 'ZR-3', 'ZR4': 'ZR-4',
+            'ZS1': 'ZS-1', 'ZS2': 'ZS-2',
+            'ZUM1': 'ZUM-1', 'ZUM2': 'ZUM-2', 'ZUM3': 'ZUM-3',
+            'ECO1': 'ECO-1', 'ECO2': 'ECO-2', 'ECO3': 'ECO-3', 'ECO4': 'ECO-4',
+            'ZH1': 'ZH-1', 'ZH2': 'ZH-2'
+        }
+        
+        return zone_mappings.get(normalized, normalized)
+    
+    def _zones_match(self, zona1: str, zona2: str) -> bool:
+        """Verifica se duas zonas são equivalentes"""
+        return (zona1 == zona2 or 
+                zona1.replace('-', '') == zona2.replace('-', '') or
+                zona1.replace('.', '') == zona2.replace('.', ''))
+    
+    def get_parameter_limits(self, zona_name: str) -> Dict[str, ParameterLimit]:
+        """Converte dados oficiais em objetos ParameterLimit"""
+        zone_data = self.get_zone_data(zona_name)
+        if not zone_data:
+            return {}
+        
+        limits = {}
+        
+        # Taxa de Ocupação - usar dados detalhados se disponíveis
+        if 'taxa_ocupacao_detalhada' in zone_data:
+            ocupacao_detalhada = zone_data['taxa_ocupacao_detalhada']
+            
+            if ocupacao_detalhada['tipo'] == 'simples':
+                # Valor simples (ex: 50%)
+                limits['taxa_ocupacao'] = ParameterLimit(
+                    name='taxa_ocupacao',
+                    min_value=None,
+                    max_value=ocupacao_detalhada['base'],
+                    unit='%'
+                )
+            elif ocupacao_detalhada['tipo'] == 'faixa':
+                # Faixa de valores (ex: 30-50%)
+                base_data = ocupacao_detalhada['base']
+                limits['taxa_ocupacao'] = ParameterLimit(
+                    name='taxa_ocupacao',
+                    min_value=base_data['min'],
+                    max_value=base_data['max'],
+                    unit='%'
+                )
+            elif ocupacao_detalhada['tipo'] == 'base_com_excecao':
+                # Base com exceção (ex: 50% até 100% no embasamento)
+                limits['taxa_ocupacao'] = ParameterLimit(
+                    name='taxa_ocupacao',
+                    min_value=None,
+                    max_value=ocupacao_detalhada['base'],
+                    unit='%'
+                )
+                # Criar limite adicional para exceção
+                for excecao in ocupacao_detalhada['excecoes']:
+                    if excecao['tipo'] == 'embasamento':
+                        limits['taxa_ocupacao_embasamento'] = ParameterLimit(
+                            name='taxa_ocupacao_embasamento',
+                            min_value=None,
+                            max_value=excecao['valor'],
+                            unit='%'
+                        )
+            elif ocupacao_detalhada['tipo'] == 'multiplos_valores':
+                # Múltiplos valores por pavimento (ex: ZC Central)
+                limits['taxa_ocupacao'] = ParameterLimit(
+                    name='taxa_ocupacao',
+                    min_value=None,
+                    max_value=ocupacao_detalhada['base'],  # Valor para demais pavimentos
+                    unit='%'
+                )
+                # Criar limite para pavimentos especiais
+                for excecao in ocupacao_detalhada['excecoes']:
+                    if excecao['tipo'] == 'pavimentos_especificos':
+                        limits['taxa_ocupacao_especial'] = ParameterLimit(
+                            name='taxa_ocupacao_especial',
+                            min_value=None,
+                            max_value=excecao['valor'],
+                            unit='%'
+                        )
+        elif 'taxa_ocupacao' in zone_data and zone_data['taxa_ocupacao']['limits']:
+            # Fallback para dados básicos se detalhados não disponíveis
+            limits_data = zone_data['taxa_ocupacao']['limits']
+            limits['taxa_ocupacao'] = ParameterLimit(
+                name='taxa_ocupacao',
+                min_value=limits_data.get('min'),
+                max_value=limits_data.get('max'),
+                unit='%'
+            )
+        
+        # Coeficiente de Aproveitamento
+        if 'coeficiente_aproveitamento' in zone_data and zone_data['coeficiente_aproveitamento']['limits']:
+            limits_data = zone_data['coeficiente_aproveitamento']['limits']
+            limits['coeficiente_aproveitamento'] = ParameterLimit(
+                name='coeficiente_aproveitamento',
+                min_value=limits_data.get('min'),
+                max_value=limits_data.get('max'),
+                unit=''
+            )
+        
+        # Altura/Pavimentos
+        if 'altura_pavimentos' in zone_data and zone_data['altura_pavimentos']['limits']:
+            limits_data = zone_data['altura_pavimentos']['limits']
+            limits['altura_edificacao'] = ParameterLimit(
+                name='altura_edificacao',
+                min_value=limits_data.get('min'),
+                max_value=limits_data.get('max'),
+                unit='pav'
+            )
+        
+        # Taxa Permeável
+        if 'taxa_permeavel' in zone_data and zone_data['taxa_permeavel']['limits']:
+            limits_data = zone_data['taxa_permeavel']['limits']
+            limits['area_permeavel'] = ParameterLimit(
+                name='area_permeavel',
+                min_value=limits_data.get('min'),
+                max_value=limits_data.get('max'),
+                unit='%'
+            )
+        
+        # Recuo Frontal
+        if 'recuo_frontal' in zone_data and zone_data['recuo_frontal']['limits']:
+            limits_data = zone_data['recuo_frontal']['limits']
+            limits['recuo_frontal'] = ParameterLimit(
+                name='recuo_frontal',
+                min_value=limits_data.get('min'),
+                max_value=limits_data.get('max'),
+                unit='m'
+            )
+        
+        return limits
+    
+    def get_zone_summary(self, zona_name: str) -> str:
+        """Gera resumo estruturado dos parâmetros da zona"""
+        zone_data = self.get_zone_data(zona_name)
+        if not zone_data:
+            return f"Dados não encontrados para a zona {zona_name}"
+        
+        zona_nome = zone_data.get('zona_oficial', zona_name)
+        summary_parts = [f"ZONA {zona_nome}:"]
+        
+        # Taxa de Ocupação - usar dados detalhados se disponíveis
+        if 'taxa_ocupacao_detalhada' in zone_data:
+            ocupacao = zone_data['taxa_ocupacao_detalhada']
+            taxa_texto = self._format_ocupacao_display(ocupacao)
+            summary_parts.append(f"- Taxa de Ocupação: {taxa_texto}")
+            
+            # Adicionar observações específicas de ocupação
+            if zone_data.get('observacoes_ocupacao'):
+                for obs in zone_data['observacoes_ocupacao']:
+                    summary_parts.append(f"  • {obs}")
+        else:
+            # Fallback para dados básicos
+            if 'taxa_ocupacao' in zone_data and zone_data['taxa_ocupacao']['valor']:
+                summary_parts.append(f"- Taxa de Ocupação: {zone_data['taxa_ocupacao']['valor']}")
+        
+        # Outros parâmetros principais
+        params = [
+            ('Coeficiente de Aproveitamento', 'coeficiente_aproveitamento'),
+            ('Altura/Pavimentos', 'altura_pavimentos'),
+            ('Taxa Permeável', 'taxa_permeavel'),
+            ('Recuo Frontal', 'recuo_frontal')
+        ]
+        
+        for param_name, param_key in params:
+            if param_key in zone_data and zone_data[param_key]['valor']:
+                summary_parts.append(f"- {param_name}: {zone_data[param_key]['valor']}")
+        
+        # Informações adicionais
+        if zone_data.get('grupo_ocupacao'):
+            summary_parts.append(f"- Grupo: {zone_data['grupo_ocupacao']}")
+            
+        if zone_data.get('usos_permitidos'):
+            summary_parts.append(f"- Usos Permitidos: {zone_data['usos_permitidos']}")
+        
+        if zone_data.get('notas_tecnicas'):
+            summary_parts.append(f"- Notas Técnicas: {zone_data['notas_tecnicas']}")
+        
+        return "\n".join(summary_parts)
+    
+    def _format_ocupacao_display(self, ocupacao_data: Dict[str, Any]) -> str:
+        """Formata dados de ocupação para exibição legível"""
+        if ocupacao_data['tipo'] == 'simples':
+            return f"{ocupacao_data['base']}%"
+        
+        elif ocupacao_data['tipo'] == 'faixa':
+            base = ocupacao_data['base']
+            return f"{base['min']}% a {base['max']}%"
+        
+        elif ocupacao_data['tipo'] == 'base_com_excecao':
+            texto = f"{ocupacao_data['base']}%"
+            for excecao in ocupacao_data['excecoes']:
+                if excecao['tipo'] == 'embasamento':
+                    texto += f" (até {excecao['valor']}% {excecao['condicao']})"
+            return texto
+        
+        elif ocupacao_data['tipo'] == 'multiplos_valores':
+            texto = f"{ocupacao_data['base']}% demais pavimentos"
+            for excecao in ocupacao_data['excecoes']:
+                if excecao['tipo'] == 'pavimentos_especificos':
+                    texto += f"; {excecao['valor']}% ({excecao['condicao']})"
+            return texto
+        
+        elif ocupacao_data['tipo'] == 'norma_propria':
+            return "Definido por norma própria"
+        
+        else:
+            return ocupacao_data.get('original', 'N/A')
+    
+    def get_available_zones(self) -> List[str]:
+        """Retorna lista de zonas disponíveis"""
+        return list(self.zones_data.keys())
+
+# Instância global do gerenciador de dados de zona
+zone_data_manager = ZoneDataManager()
 
 class DocumentRetriever:
     """Retriever otimizado com busca híbrida"""
@@ -583,12 +1092,20 @@ class ReportGenerator:
     
     INSTRUÇÕES CRÍTICAS:
     1. Extraia EXATAMENTE os valores do projeto do memorial fornecido
-    2. Identifique os limites da legislação nos documentos de contexto
-    3. Compare numericamente cada parâmetro
+    2. Identifique os limites da legislação nos documentos de contexto - ATENÇÃO aos valores mínimos E máximos
+    3. Compare numericamente cada parâmetro considerando faixas de valores
     4. IMPORTANTE - Para ALTURA DA EDIFICAÇÃO: Se a legislação especifica limite em pavimentos e o projeto em metros (ou vice-versa), use a conversão: 1 pavimento = 3,0 metros (padrão técnico)
     5. Use APENAS "✅ Conforme" ou "❌ Não Conforme" na coluna Conformidade
     6. Seja CONCLUSIVO no parecer final sobre aprovação/reprovação
     7. Na coluna "Observação" para altura, sempre explicite a conversão feita (ex: "8,5m = 2,8 pavimentos")
+    8. IMPORTANTE - Para cada parâmetro, identifique se a legislação estabelece:
+       - APENAS valor máximo (ex: "taxa de ocupação máxima: 50%")
+       - APENAS valor mínimo (ex: "área permeável mínima: 20%") 
+       - AMBOS min e máx (ex: "coeficiente entre 0,5 e 2,0")
+    9. Na validação, considere:
+       - Valor ACIMA do máximo = ❌ Não Conforme
+       - Valor ABAIXO do mínimo = ❌ Não Conforme
+       - Valor dentro da faixa = ✅ Conforme
     
     FORMATO OBRIGATÓRIO:
     
@@ -599,15 +1116,21 @@ class ReportGenerator:
     
     ## 2. Análise dos Parâmetros
     
-    | Parâmetro | Valor no Projeto | Valor Máximo Permitido | Conformidade | Observação |
+    | Parâmetro | Valor no Projeto | Limite da Legislação | Conformidade | Observação |
     |---|---|---|---|---|
-    | Taxa de Ocupação | [valor]% | [valor]% | ✅/❌ | [obs] |
-    | Coeficiente de Aproveitamento | [valor] | [valor] | ✅/❌ | [obs] |
-    | Altura da Edificação | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Recuo Frontal | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Recuos Laterais | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Recuo de Fundos | [valor]m | [valor]m | ✅/❌ | [obs] |
-    | Área Permeável | [valor]% | [valor]% | ✅/❌ | [obs] |
+    | Taxa de Ocupação | [valor]% | [limite] | ✅/❌ | [obs] |
+    | Coeficiente de Aproveitamento | [valor] | [limite] | ✅/❌ | [obs] |
+    | Altura da Edificação | [valor]m | [limite] | ✅/❌ | [obs] |
+    | Recuo Frontal | [valor]m | [limite] | ✅/❌ | [obs] |
+    | Recuos Laterais | [valor]m | [limite] | ✅/❌ | [obs] |
+    | Recuo de Fundos | [valor]m | [limite] | ✅/❌ | [obs] |
+    | Área Permeável | [valor]% | [limite] | ✅/❌ | [obs] |
+    
+    FORMATO DA COLUNA "Limite da Legislação":
+    - "Máx: 50%" (apenas máximo)
+    - "Mín: 20%" (apenas mínimo)  
+    - "0,5 a 2,0" (faixa completa)
+    - "Não especificado" (se não encontrar)
     
     ## 3. Parecer Final
     [Conclusão sobre conformidade - APROVADO ou REPROVADO]
@@ -682,10 +1205,40 @@ class AnalysisEngine:
                 print(f"DEBUG GIS - Zona detectada: {zona} | Confiança: {detection_result.confidence} | Fonte: {detection_result.source}")
                 if detection_result.coordinates:
                     print(f"DEBUG GIS - Coordenadas: {detection_result.coordinates}")
+                    
+                # Mostrar informação compacta de detecção
+                st.info(f"🎯 **Zona detectada**: {zona} via {detection_result.source} (confiança: {detection_result.confidence})")
             
             # Salvar informações de detecção para uso posterior
             zona_detection_info = zona_info
             zona_detection_details = detection_details
+            
+            # Enriquecer com parâmetros oficiais de zoneamento usando ZoneDataManager
+            zone_data = zone_data_manager.get_zone_data(zona)
+            zone_limits = zone_data_manager.get_parameter_limits(zona)
+            
+            if zone_data:
+                zona_params_oficiais = zone_data
+                zona_info += f" - DADOS OFICIAIS CARREGADOS ({len(zone_limits)} parâmetros)"
+                print(f"DEBUG ZONEAMENTO - Dados oficiais carregados para {zona}: {list(zone_limits.keys())}")
+                
+                # Adicionar resumo da zona aos detalhes
+                zone_summary = zone_data_manager.get_zone_summary(zona)
+                zona_detection_details += f"\n\nDados Oficiais da Zona:\n{zone_summary}"
+            else:
+                zona_params_oficiais = {}
+                zona_info += f" - DADOS OFICIAIS NÃO ENCONTRADOS"
+                print(f"DEBUG ZONEAMENTO - Nenhum dado oficial encontrado para {zona}")
+                
+                # Tentar fallback com sistema antigo se disponível
+                try:
+                    from zoneamento_integration import enhanced_zone_lookup
+                    zone_params = enhanced_zone_lookup(zona)
+                    if zone_params.get('zona_encontrada'):
+                        zona_params_oficiais = zone_params.get('parametros', {})
+                        print(f"DEBUG ZONEAMENTO - Usando fallback: parâmetros carregados para {zona}")
+                except ImportError:
+                    print(f"DEBUG ZONEAMENTO - Sistema de fallback não disponível")
             
             # 3. Extrair parâmetros
             parametros = self.extractor.extract(memorial)
@@ -727,7 +1280,7 @@ class AnalysisEngine:
             
             # 5. Gerar relatório
             generator = ReportGenerator(resources["llm"])
-            query = self._build_query(endereco, cidade, zona, memorial, parametros)
+            query = self._build_query(endereco, cidade, zona, memorial, parametros, zona_params_oficiais)
             relatorio = generator.generate(documentos, query)
             
             return {
@@ -751,7 +1304,7 @@ class AnalysisEngine:
             logger.error(f"Erro na análise: {e}")
             raise
     
-    def _build_query(self, endereco: str, cidade: str, zona: str, memorial: str, parametros: dict = None) -> str:
+    def _build_query(self, endereco: str, cidade: str, zona: str, memorial: str, parametros: dict = None, zona_params_oficiais: dict = None) -> str:
         """Constrói query otimizada"""
         query = f"""
         DADOS DO PROJETO:
@@ -769,6 +1322,10 @@ class AnalysisEngine:
             altura_pav = parametros.get('altura_pavimentos', HeightConverter.metros_para_pavimentos(parametros['altura_edificacao']))
             unidade_orig = parametros.get('altura_unidade_original', 'metros')
             
+            # Garantir que valores não sejam None para formatação
+            altura_m = altura_m if altura_m is not None else 0.0
+            altura_pav = altura_pav if altura_pav is not None else 0.0
+            
             query += f"""
         
         INFORMAÇÕES ADICIONAIS SOBRE ALTURA:
@@ -777,9 +1334,72 @@ class AnalysisEngine:
         - Conversão baseada no padrão técnico: 1 pavimento = 3,0 metros
         """
         
+        # Adicionar dados oficiais da zona usando o novo formato estruturado
+        if zona_params_oficiais:
+            query += f"""
+        
+        DADOS OFICIAIS DA ZONA {zona}:
+        """
+            
+            # Processar parâmetros estruturados
+            params_formatados = []
+            
+            if zona_params_oficiais.get('taxa_ocupacao', {}).get('valor'):
+                params_formatados.append(f"- Taxa de Ocupação: {zona_params_oficiais['taxa_ocupacao']['valor']}")
+                
+            if zona_params_oficiais.get('coeficiente_aproveitamento', {}).get('valor'):
+                params_formatados.append(f"- Coeficiente de Aproveitamento: {zona_params_oficiais['coeficiente_aproveitamento']['valor']}")
+                
+            if zona_params_oficiais.get('altura_pavimentos', {}).get('valor'):
+                params_formatados.append(f"- Altura/Pavimentos: {zona_params_oficiais['altura_pavimentos']['valor']}")
+                
+            if zona_params_oficiais.get('taxa_permeavel', {}).get('valor'):
+                params_formatados.append(f"- Taxa Permeável: {zona_params_oficiais['taxa_permeavel']['valor']}")
+                
+            if zona_params_oficiais.get('recuo_frontal', {}).get('valor'):
+                params_formatados.append(f"- Recuo Frontal: {zona_params_oficiais['recuo_frontal']['valor']}")
+                
+            if zona_params_oficiais.get('afastamento_divisas', {}).get('valor'):
+                params_formatados.append(f"- Afastamento Divisas: {zona_params_oficiais['afastamento_divisas']['valor']}")
+                
+            if zona_params_oficiais.get('lote_padrao', {}).get('valor'):
+                params_formatados.append(f"- Lote Padrão: {zona_params_oficiais['lote_padrao']['valor']}")
+                
+            if zona_params_oficiais.get('usos_permitidos'):
+                params_formatados.append(f"- Usos Permitidos: {zona_params_oficiais['usos_permitidos']}")
+                
+            if zona_params_oficiais.get('notas_tecnicas'):
+                params_formatados.append(f"- Notas Técnicas: {zona_params_oficiais['notas_tecnicas']}")
+            
+            query += "\n".join(params_formatados)
+            
+            # Adicionar informações sobre limites específicos obtidos do ZoneDataManager
+            zone_limits = zone_data_manager.get_parameter_limits(zona)
+            if zone_limits:
+                query += f"""
+        
+        LIMITES ESPECÍFICOS EXTRAÍDOS:
+        """
+                for param_name, limit in zone_limits.items():
+                    if limit.min_value is not None or limit.max_value is not None:
+                        query += f"- {param_name.replace('_', ' ').title()}: {limit.get_limit_display()}\n"
+        
         query += f"""
         
-        TAREFA: Analise a conformidade do projeto acima com os parâmetros da zona {zona}.
+        TAREFA ESPECÍFICA: 
+        Analise cada parâmetro identificando se a legislação da zona {zona} estabelece:
+        
+        1. VALORES MÍNIMOS (ex: "área permeável mínima", "coeficiente mínimo")
+        2. VALORES MÁXIMOS (ex: "taxa máxima", "altura máxima") 
+        3. FAIXAS DE VALORES (ex: "entre X e Y", "de X até Y")
+        
+        Para cada parâmetro encontrado:
+        - Se apenas máximo: compare se projeto ≤ máximo
+        - Se apenas mínimo: compare se projeto ≥ mínimo  
+        - Se faixa: compare se mínimo ≤ projeto ≤ máximo
+        
+        Use os PARÂMETROS OFICIAIS DA ZONA listados acima como referência principal, mas também
+        analise os documentos de contexto para identificar limites mínimos e máximos específicos.
         """
         
         return query
