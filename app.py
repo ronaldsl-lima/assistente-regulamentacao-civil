@@ -222,14 +222,16 @@ class HeightConverter:
     ALTURA_MAXIMA_PAVIMENTO = 4.0  # metros (máximo razoável)
     
     @staticmethod
-    def metros_para_pavimentos(metros: float) -> float:
+    def metros_para_pavimentos(metros: float, altura_pav: float = None) -> float:
         """Converte metros para número de pavimentos"""
-        return metros / HeightConverter.ALTURA_PADRAO_PAVIMENTO
+        altura_ref = altura_pav or HeightConverter.ALTURA_PADRAO_PAVIMENTO
+        return metros / altura_ref
     
     @staticmethod
-    def pavimentos_para_metros(pavimentos: float) -> float:
+    def pavimentos_para_metros(pavimentos: float, altura_pav: float = None) -> float:
         """Converte pavimentos para metros"""
-        return pavimentos * HeightConverter.ALTURA_PADRAO_PAVIMENTO
+        altura_ref = altura_pav or HeightConverter.ALTURA_PADRAO_PAVIMENTO
+        return pavimentos * altura_ref
     
     @staticmethod
     def detectar_unidade_altura(valor: float) -> str:
@@ -1174,7 +1176,8 @@ class AnalysisEngine:
         self.extractor = ParameterExtractor()
     
     def run_analysis(self, cidade: str, endereco: str, memorial: str, 
-                     zona_manual: Optional[str] = None, usar_zona_manual: bool = False) -> Dict[str, Any]:
+                     zona_manual: Optional[str] = None, usar_zona_manual: bool = False,
+                     parametros_avancados: dict = None) -> Dict[str, Any]:
         """Execução otimizada da análise"""
         
         try:
@@ -1280,7 +1283,7 @@ class AnalysisEngine:
             
             # 5. Gerar relatório
             generator = ReportGenerator(resources["llm"])
-            query = self._build_query(endereco, cidade, zona, memorial, parametros, zona_params_oficiais)
+            query = self._build_query(endereco, cidade, zona, memorial, parametros, zona_params_oficiais, parametros_avancados)
             relatorio = generator.generate(documentos, query)
             
             return {
@@ -1304,7 +1307,7 @@ class AnalysisEngine:
             logger.error(f"Erro na análise: {e}")
             raise
     
-    def _build_query(self, endereco: str, cidade: str, zona: str, memorial: str, parametros: dict = None, zona_params_oficiais: dict = None) -> str:
+    def _build_query(self, endereco: str, cidade: str, zona: str, memorial: str, parametros: dict = None, zona_params_oficiais: dict = None, parametros_avancados: dict = None) -> str:
         """Constrói query otimizada"""
         query = f"""
         DADOS DO PROJETO:
@@ -1319,8 +1322,15 @@ class AnalysisEngine:
         # Adiciona informações de conversão de altura se disponível
         if parametros and parametros.get('altura_edificacao') is not None:
             altura_m = parametros.get('altura_metros', parametros['altura_edificacao'])
-            altura_pav = parametros.get('altura_pavimentos', HeightConverter.metros_para_pavimentos(parametros['altura_edificacao']))
+            
+            # Usar altura personalizada se disponível
+            altura_pav_personalizada = parametros_avancados.get('altura_personalizada_pav', 3.0) if parametros_avancados else 3.0
+            altura_pav = parametros.get('altura_pavimentos', HeightConverter.metros_para_pavimentos(parametros['altura_edificacao'], altura_pav_personalizada))
             unidade_orig = parametros.get('altura_unidade_original', 'metros')
+            
+            # Considerar ático se especificado
+            incluir_atico = parametros_avancados.get('incluir_atico', False) if parametros_avancados else False
+            atico_info = " (incluindo ático/cobertura)" if incluir_atico else ""
             
             # Garantir que valores não sejam None para formatação
             altura_m = altura_m if altura_m is not None else 0.0
@@ -1329,9 +1339,9 @@ class AnalysisEngine:
             query += f"""
         
         INFORMAÇÕES ADICIONAIS SOBRE ALTURA:
-        - Altura informada no memorial: {parametros['altura_edificacao']} {unidade_orig}
+        - Altura informada no memorial: {parametros['altura_edificacao']} {unidade_orig}{atico_info}
         - Equivalência: {altura_m:.1f} metros = {altura_pav:.1f} pavimentos
-        - Conversão baseada no padrão técnico: 1 pavimento = 3,0 metros
+        - Conversão baseada em altura personalizada: 1 pavimento = {altura_pav_personalizada:.1f} metros
         """
         
         # Adicionar dados oficiais da zona usando o novo formato estruturado
@@ -1400,6 +1410,23 @@ class AnalysisEngine:
         
         Use os PARÂMETROS OFICIAIS DA ZONA listados acima como referência principal, mas também
         analise os documentos de contexto para identificar limites mínimos e máximos específicos.
+        """
+        
+        # Adicionar informações sobre parâmetros específicos avançados se disponíveis
+        if parametros_avancados:
+            query += f"""
+        
+        PARÂMETROS ESPECÍFICOS DE ANÁLISE:
+        - Altura por pavimento personalizada: {parametros_avancados.get('altura_personalizada_pav', 3.0):.1f}m
+        - Incluir ático/cobertura: {'Sim' if parametros_avancados.get('incluir_atico', False) else 'Não'}
+        - Considerar varandas descobertas: {'Sim' if parametros_avancados.get('incluir_varandas', False) else 'Não'}
+        - Considerar pavimento permeável: {'Sim' if parametros_avancados.get('pavimento_permeavel', False) else 'Não'}
+        - Tipo de recuo: {parametros_avancados.get('tipo_recuo', 'Recuos mínimos')}
+        - Considerar marquises/beirais: {'Sim' if parametros_avancados.get('considerar_marquises', False) else 'Não'}
+        
+        INSTRUÇÕES ESPECÍFICAS:
+        - Para área permeável: {'incluir varandas descobertas e ' if parametros_avancados.get('incluir_varandas', False) else ''}{'considerar pavimentos permeáveis' if parametros_avancados.get('pavimento_permeavel', False) else 'usar critérios padrão'}
+        - Para recuos: usar {'valores mínimos obrigatórios' if parametros_avancados.get('tipo_recuo') == 'Recuos obrigatórios' else 'valores mínimos recomendados'}{' e considerar marquises/beirais nos cálculos' if parametros_avancados.get('considerar_marquises', False) else ''}
         """
         
         return query
@@ -1645,6 +1672,7 @@ def criar_formulario_estruturado():
     # OPÇÕES AVANÇADAS
     # =============================================
     with st.sidebar.expander("⚙️ Opções Avançadas"):
+        # Zona Manual
         zona_manual = st.sidebar.text_input(
             "Zona Manual:",
             placeholder="Ex: ZR-4, ZCC.4",
@@ -1653,6 +1681,50 @@ def criar_formulario_estruturado():
         usar_zona_manual = st.sidebar.checkbox(
             "Usar zona informada manualmente",
             help="Marque para usar a zona informada ao invés da detecção automática"
+        )
+        
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**🔧 Parâmetros Específicos**")
+        
+        # Conversão de altura personalizada
+        st.sidebar.markdown("**Altura por Pavimento:**")
+        altura_personalizada_pav = st.sidebar.number_input(
+            "Altura por pavimento (m):",
+            min_value=2.4,
+            max_value=4.0,
+            value=3.0,
+            step=0.1,
+            help="Altura personalizada para conversão metros ↔ pavimentos"
+        )
+        
+        incluir_atico = st.sidebar.checkbox(
+            "Incluir ático/cobertura no cálculo",
+            help="Considera ático e cobertura no cálculo de altura total"
+        )
+        
+        # Cálculo de área permeável
+        st.sidebar.markdown("**Área Permeável:**")
+        incluir_varandas = st.sidebar.checkbox(
+            "Incluir varandas descobertas",
+            help="Considera varandas descobertas como área permeável"
+        )
+        
+        pavimento_permeavel = st.sidebar.checkbox(
+            "Considerar pavimento permeável",
+            help="Inclui pavimentos permeáveis no cálculo da taxa"
+        )
+        
+        # Tratamento de recuos
+        st.sidebar.markdown("**Recuos:**")
+        tipo_recuo = st.sidebar.selectbox(
+            "Tipo de recuo:",
+            ["Recuos mínimos", "Recuos obrigatórios"],
+            help="Define se usar valores mínimos ou obrigatórios da legislação"
+        )
+        
+        considerar_marquises = st.sidebar.checkbox(
+            "Considerar marquises e beirais",
+            help="Inclui marquises e beirais no cálculo de recuos"
         )
     
     # =============================================
@@ -1776,7 +1848,14 @@ def criar_formulario_estruturado():
         'taxa_ocupacao': taxa_ocupacao,
         'coeficiente_aproveitamento': coeficiente_aproveitamento,
         'pode_analisar': pode_analisar,
-        'analisar': analisar
+        'analisar': analisar,
+        # Parâmetros específicos avançados
+        'altura_personalizada_pav': altura_personalizada_pav,
+        'incluir_atico': incluir_atico,
+        'incluir_varandas': incluir_varandas,
+        'pavimento_permeavel': pavimento_permeavel,
+        'tipo_recuo': tipo_recuo,
+        'considerar_marquises': considerar_marquises
     }
 
 def main():
@@ -1833,12 +1912,23 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         # Executar análise
         try:
             with st.spinner("Executando análise de conformidade urbanística..."):
+                # Coletar parâmetros avançados
+                parametros_avancados = {
+                    'altura_personalizada_pav': dados.get('altura_personalizada_pav', 3.0),
+                    'incluir_atico': dados.get('incluir_atico', False),
+                    'incluir_varandas': dados.get('incluir_varandas', False),
+                    'pavimento_permeavel': dados.get('pavimento_permeavel', False),
+                    'tipo_recuo': dados.get('tipo_recuo', 'Recuos mínimos'),
+                    'considerar_marquises': dados.get('considerar_marquises', False)
+                }
+                
                 resultado = st.session_state.engine.run_analysis(
                     cidade=dados['cidade'],
                     endereco=dados['endereco'],
                     memorial=memorial,
                     zona_manual=dados['zona_manual'],
-                    usar_zona_manual=dados['usar_zona_manual']
+                    usar_zona_manual=dados['usar_zona_manual'],
+                    parametros_avancados=parametros_avancados
                 )
                 
                 # Adicionar dados do formulário ao resultado
