@@ -1678,7 +1678,6 @@ def criar_formulario_estruturado():
     # Validação crítica: endereço obrigatório
     if not endereco_obrigatorio:
         validacoes_ok = False
-        mensagens_erro.append("Endereço completo é obrigatório para detecção precisa da zona")
     
     if area_lote > 0:
         if area_projecao > area_lote:
