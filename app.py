@@ -1482,9 +1482,9 @@ def criar_formulario_estruturado():
     )
     
     endereco = st.sidebar.text_input(
-        "Endereço Completo do Imóvel:",
-        placeholder="Ex: Rua das Flores, 123, Centro, Curitiba-PR",
-        help="Digite o endereço completo com logradouro, número, bairro e cidade"
+        "📍 Endereço Completo do Imóvel: *",
+        placeholder="Ex: RUA PROFESSOR OSVALDO ORMIAMIN, 480",
+        help="⚠️ OBRIGATÓRIO: Digite o endereço completo para detecção precisa da zona"
     )
     
     inscricao_imobiliaria = st.sidebar.text_input(
@@ -1492,6 +1492,8 @@ def criar_formulario_estruturado():
         placeholder="Ex: 03000180090017",
         help="Digite o número da inscrição imobiliária do imóvel (opcional)"
     )
+    
+    st.sidebar.info("💡 **Novo**: Endereço completo é obrigatório para garantir detecção precisa da zona de uso!")
     
     # =============================================
     # SEÇÃO 2: Dados do Lote
@@ -1659,18 +1661,26 @@ def criar_formulario_estruturado():
     # VALIDAÇÕES E CÁLCULOS
     # =============================================
     
-    # Verificar se pelo menos um campo principal está preenchido
-    campos_principais = [
-        endereco, area_lote > 0, uso_pretendido != "Selecione...", 
+    # VALIDAÇÃO OBRIGATÓRIA: Endereço deve estar preenchido
+    endereco_obrigatorio = bool(endereco and endereco.strip())
+    
+    # Verificar se outros campos estão preenchidos (complementares)
+    campos_complementares = [
+        area_lote > 0, uso_pretendido != "Selecione...", 
         area_projecao > 0, area_construida > 0, altura_edificacao > 0,
         inscricao_imobiliaria
     ]
     
-    pelo_menos_um_campo = any(campo for campo in campos_principais)
+    pelo_menos_um_campo = endereco_obrigatorio and any(campo for campo in campos_complementares)
     
     # Validações lógicas
     validacoes_ok = True
     mensagens_erro = []
+    
+    # Validação crítica: endereço obrigatório
+    if not endereco_obrigatorio:
+        validacoes_ok = False
+        mensagens_erro.append("Endereço completo é obrigatório para detecção precisa da zona")
     
     if area_lote > 0:
         if area_projecao > area_lote:
@@ -1711,8 +1721,10 @@ def criar_formulario_estruturado():
     pode_analisar = pelo_menos_um_campo and validacoes_ok
     
     if not pode_analisar:
-        if not pelo_menos_um_campo:
-            st.sidebar.warning("⚠️ Preencha pelo menos um campo para análise")
+        if not endereco_obrigatorio:
+            st.sidebar.error("🚫 Endereço completo é OBRIGATÓRIO para análise!")
+        elif not pelo_menos_um_campo:
+            st.sidebar.warning("⚠️ Preencha pelo menos um campo complementar para análise")
         elif not validacoes_ok:
             st.sidebar.warning("⚠️ Corrija os erros de validação acima")
     
