@@ -1493,8 +1493,6 @@ def criar_formulario_estruturado():
         help="Digite o número da inscrição imobiliária do imóvel (opcional)"
     )
     
-    st.sidebar.info("💡 **Novo**: Endereço completo é obrigatório para garantir detecção precisa da zona de uso!")
-    
     # =============================================
     # SEÇÃO 2: Dados do Lote
     # =============================================
