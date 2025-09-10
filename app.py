@@ -23,11 +23,8 @@ import pandas as pd
 from datetime import datetime
 from utils import encontrar_zona_por_endereco
 
-# Forçar reload do módulo gis_zone_detector para garantir versão corrigida
-import importlib
-import gis_zone_detector
-importlib.reload(gis_zone_detector)
-from gis_zone_detector import detect_zone_professional
+# SOLUÇÃO DEFINITIVA LAYER 36 - ZONEAMENTO LEI 15.511/2019
+from geocuritiba_layer36_solution import detect_zone_professional
 
 from zoneamento_integration import enhanced_zone_lookup
 from zoneamento_curitiba import DetectorZoneamento
@@ -1195,8 +1192,9 @@ class AnalysisEngine:
                 zona_info = f"{zona} (INFORMADA MANUALMENTE)"
                 detection_details = "Zona informada pelo usuário"
             else:
-                # Usar sistema GIS profissional
-                detection_result = detect_zone_professional(endereco or "")
+                # Usar sistema GIS profissional com LAYER 36 - LEI 15.511/2019
+                inscricao = dados_formulario.get('inscricao_imobiliaria', '') if dados_formulario else ''
+                detection_result = detect_zone_professional(endereco or "", inscricao)
                 zona = detection_result.zona
                 
                 # Criar informações detalhadas da detecção
