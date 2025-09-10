@@ -18,7 +18,15 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(pip install:*)",
-      "WebFetch(domain:assistente-regulamentacao-civil.streamlit.app)"
+      "WebFetch(domain:assistente-regulamentacao-civil.streamlit.app)",
+      "Read(//c/Users/User/Downloads/**)",
+      "WebFetch(domain:geocuritiba.ippuc.org.br)",
+      "WebSearch",
+      "Bash(find:*)",
+      "Bash(copy app.py app_backup_before_fix.py)",
+      "Bash(tasklist)",
+      "Bash(git reset:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

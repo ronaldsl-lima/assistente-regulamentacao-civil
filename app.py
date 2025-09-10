@@ -26,9 +26,7 @@ from utils import encontrar_zona_por_endereco
 # SOLUÇÃO DEFINITIVA LAYER 36 - ZONEAMENTO LEI 15.511/2019
 from geocuritiba_layer36_solution import detect_zone_professional
 
-from zoneamento_integration import enhanced_zone_lookup
-from zoneamento_curitiba import DetectorZoneamento
-from geocuritiba_integration import GeoCuritibaAPI, integrar_geocuritiba_app
+# Módulos obsoletos removidos - agora usando apenas geocuritiba_layer36_solution
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -128,8 +126,7 @@ class ResourceManager:
 # Instância global do gerenciador
 resource_manager = ResourceManager()
 
-# Instância global do detector de zoneamento
-detector_zoneamento = DetectorZoneamento()
+# Detector de zoneamento removido - usando apenas Layer 36 solution
 
 class ProjectDataCalculator:
     """Calculadora de parâmetros urbanísticos do projeto"""
@@ -1236,15 +1233,8 @@ class AnalysisEngine:
                 zona_info += f" - DADOS OFICIAIS NÃO ENCONTRADOS"
                 print(f"DEBUG ZONEAMENTO - Nenhum dado oficial encontrado para {zona}")
                 
-                # Tentar fallback com sistema antigo se disponível
-                try:
-                    from zoneamento_integration import enhanced_zone_lookup
-                    zone_params = enhanced_zone_lookup(zona)
-                    if zone_params.get('zona_encontrada'):
-                        zona_params_oficiais = zone_params.get('parametros', {})
-                        print(f"DEBUG ZONEAMENTO - Usando fallback: parâmetros carregados para {zona}")
-                except ImportError:
-                    print(f"DEBUG ZONEAMENTO - Sistema de fallback não disponível")
+                # Sistema de fallback removido - usando apenas dados oficiais do ZoneDataManager
+                print(f"DEBUG ZONEAMENTO - Sistema de fallback obsoleto removido para {zona}")
             
             # Validação com parâmetros da zona detectada pelo sistema robusto
             validacoes_robustas = []
@@ -1680,67 +1670,8 @@ def criar_formulario_estruturado():
         )
         
         if metodo_deteccao == "🌐 GeoCuritiba IPPUC (Online)":
-            # Integração com GeoCuritiba IPPUC
-            col1, col2 = st.sidebar.columns([3, 1])
-            with col2:
-                buscar_ippuc = st.button("🔍", help="Buscar no GeoCuritiba IPPUC", key="buscar_ippuc")
-            
-            if buscar_ippuc:
-                with st.spinner("Consultando GeoCuritiba IPPUC..."):
-                    try:
-                        dados_ippuc = integrar_geocuritiba_app(
-                            indicacao=inscricao_imobiliaria,
-                            endereco=endereco,
-                            automatico=True
-                        )
-                        
-                        if dados_ippuc and dados_ippuc.get('encontrado'):
-                            zona_detectada = dados_ippuc.get('zoneamento')
-                            zona_confianca = 100.0  # Dados oficiais = 100% confiança
-                            zona_metodo = "GeoCuritiba IPPUC (Oficial)"
-                            
-                            # Criar objeto compatível com os parâmetros
-                            if dados_ippuc.get('parametros'):
-                                parametros_ippuc = dados_ippuc['parametros']
-                                
-                                # Converter para formato compatível
-                                class ParametrosIppuc:
-                                    def __init__(self, params):
-                                        self.coef_aproveitamento_basico = params.get('coef_aproveitamento_basico', 1.0)
-                                        self.coef_aproveitamento_maximo = params.get('coef_aproveitamento_maximo', 1.0)
-                                        self.taxa_ocupacao_maxima = params.get('taxa_ocupacao_maxima', 60.0)
-                                        self.taxa_permeabilidade_minima = params.get('taxa_permeabilidade_minima', 25.0)
-                                        self.altura_maxima = params.get('altura_maxima', 15.0)
-                                        self.recuo_frontal_minimo = params.get('recuo_frontal_minimo', 5.0)
-                                        self.densidade_maxima = 200.0  # Padrão
-                                
-                                zona_parametros = ParametrosIppuc(parametros_ippuc)
-                            
-                            # Salvar dados completos
-                            st.session_state['dados_geocuritiba'] = dados_ippuc
-                            
-                            # Exibir informações da detecção oficial
-                            st.sidebar.success(f"🎯 Zona OFICIAL: **{zona_detectada}**")
-                            st.sidebar.info(f"🏛️ Fonte: GeoCuritiba IPPUC | Confiança: 100%")
-                            
-                            if dados_ippuc.get('area_lote'):
-                                st.sidebar.info(f"📐 Área do Lote: {dados_ippuc['area_lote']:.2f} m²")
-                            
-                            if zona_parametros:
-                                with st.sidebar.expander("📋 Parâmetros Oficiais da Zona"):
-                                    st.write(f"**{zona_detectada}** (Dados IPPUC)")
-                                    st.write(f"CA Básico: {zona_parametros.coef_aproveitamento_basico}")
-                                    st.write(f"CA Máximo: {zona_parametros.coef_aproveitamento_maximo}")
-                                    st.write(f"TO Máxima: {zona_parametros.taxa_ocupacao_maxima}%")
-                                    st.write(f"TP Mínima: {zona_parametros.taxa_permeabilidade_minima}%")
-                                    st.write(f"Altura Máx.: {zona_parametros.altura_maxima}m")
-                                    if zona_parametros.recuo_frontal_minimo > 0:
-                                        st.write(f"Recuo Frontal Mín.: {zona_parametros.recuo_frontal_minimo}m")
-                        else:
-                            st.sidebar.error("❌ Dados não encontrados no GeoCuritiba")
-                            st.sidebar.info("Verifique a inscrição imobiliária ou tente o método offline")
-                    except Exception as e:
-                        st.sidebar.error(f"⚠️ Erro na consulta GeoCuritiba: {str(e)}")
+            # Sistema antigo removido - agora usando Layer 36 automaticamente
+            st.sidebar.info("ℹ️ Modo GeoCuritiba IPPUC removido. O sistema agora usa automaticamente a Layer 36 oficial.")
         
         else:
             # Sistema offline original
