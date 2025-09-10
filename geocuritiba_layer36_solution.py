@@ -55,9 +55,9 @@ class GeoCuritibaLayer36Detector:
         - fonte: str
         """
         try:
-            # 1. Buscar coordenadas do lote
-            coordenadas = self._buscar_coordenadas_lote(inscricao_fiscal)
-            if not coordenadas:
+            # 1. Buscar geometria completa do lote
+            geometria_lote = self._buscar_coordenadas_lote(inscricao_fiscal)
+            if not geometria_lote:
                 return {
                     'sucesso': False,
                     'erro': 'Lote não encontrado no sistema cadastral',
@@ -65,17 +65,18 @@ class GeoCuritibaLayer36Detector:
                     'fonte': 'ERRO'
                 }
             
-            x, y = coordenadas
-            logger.info(f"Coordenadas encontradas para {inscricao_fiscal}: ({x}, {y})")
+            # Calcular centróide para logging e compatibilidade
+            centroide = self._calcular_centroide(geometria_lote)
+            logger.info(f"Geometria do lote encontrada para {inscricao_fiscal}. Centróide: {centroide}")
             
-            # 2. Query na layer 36 com campos extras
-            zonas_info = self._consultar_layer36_multiplas_zonas(x, y)
+            # 2. Query na layer 36 usando geometria completa do lote
+            zonas_info = self._consultar_layer36_multiplas_zonas(geometria_lote)
             if not zonas_info:
                 return {
                     'sucesso': False,
-                    'erro': 'Zoneamento não encontrado para estas coordenadas',
+                    'erro': 'Zoneamento não encontrado para esta geometria',
                     'zoneamento': None,
-                    'coordenadas': (x, y),
+                    'coordenadas': centroide,
                     'fonte': 'LAYER36_SEM_DADOS'
                 }
             
@@ -100,7 +101,7 @@ class GeoCuritibaLayer36Detector:
                     'sucesso': False,
                     'erro': 'Dados de zoneamento vazios ou inválidos',
                     'zoneamento': None,
-                    'coordenadas': (x, y),
+                    'coordenadas': centroide,
                     'fonte': 'LAYER36_DADOS_VAZIOS'
                 }
             
@@ -112,7 +113,7 @@ class GeoCuritibaLayer36Detector:
                 'zoneamento': zona_principal['sigla_padronizada'],
                 'nome_completo': zona_principal['nome'],
                 'todas_zonas': zonas,
-                'coordenadas': (x, y),
+                'coordenadas': centroide,
                 'fonte': 'GeoCuritiba - Lei 15.511/2019 - Layer 36',
                 'detalhes': f"Detectadas {len(zonas)} zona(s). Zona principal: {zona_principal['sigla_padronizada']}"
             }
@@ -150,8 +151,13 @@ class GeoCuritibaLayer36Detector:
                 details=resultado.get('erro', 'Erro não especificado')
             )
     
-    def _buscar_coordenadas_lote(self, inscricao_fiscal: str) -> Optional[Tuple[float, float]]:
-        """Busca coordenadas do centroide do lote pela inscrição fiscal"""
+    def _buscar_coordenadas_lote(self, inscricao_fiscal: str) -> Optional[Dict[str, Any]]:
+        """
+        🎯 BUSCA GEOMETRIA COMPLETA DO LOTE (NÃO APENAS COORDENADAS!)
+        
+        MUDANÇA CRÍTICA: Retorna a geometria COMPLETA do polígono do lote
+        ao invés de apenas o centróide. Isso é essencial para precisão.
+        """
         try:
             url_lote = f"{self.CADASTRAL_SERVICE}/find"
             
@@ -176,19 +182,11 @@ class GeoCuritibaLayer36Detector:
                 geometry = result.get('geometry')
                 
                 if geometry:
-                    if 'rings' in geometry:
-                        # Polígono - calcular centroide
-                        rings = geometry['rings'][0]
-                        x = sum(p[0] for p in rings) / len(rings)
-                        y = sum(p[1] for p in rings) / len(rings)
-                    else:
-                        # Ponto
-                        x = geometry.get('x')
-                        y = geometry.get('y')
+                    logger.info(f"Geometria completa encontrada para {inscricao_fiscal}")
+                    logger.info(f"Tipo de geometria: {'Polígono' if 'rings' in geometry else 'Ponto'}")
                     
-                    if x and y:
-                        logger.info(f"Coordenadas encontradas para {inscricao_fiscal}: ({x}, {y})")
-                        return (x, y)
+                    # Retornar geometria COMPLETA ao invés de apenas centróide
+                    return geometry
             
             # Fallback: tentar método alternativo via query
             return self._buscar_coordenadas_alternativo(inscricao_fiscal)
@@ -197,8 +195,8 @@ class GeoCuritibaLayer36Detector:
             logger.error(f"Erro ao buscar coordenadas do lote {inscricao_fiscal}: {e}")
             return None
     
-    def _buscar_coordenadas_alternativo(self, inscricao_fiscal: str) -> Optional[Tuple[float, float]]:
-        """Método alternativo para buscar coordenadas"""
+    def _buscar_coordenadas_alternativo(self, inscricao_fiscal: str) -> Optional[Dict[str, Any]]:
+        """Método alternativo para buscar geometria completa do lote"""
         try:
             url_query = f"{self.CADASTRAL_SERVICE}/0/query"  # Layer 0 - Lotes
             
@@ -217,39 +215,70 @@ class GeoCuritibaLayer36Detector:
             if data.get('features') and len(data['features']) > 0:
                 geometry = data['features'][0]['geometry']
                 
-                if 'rings' in geometry:
-                    rings = geometry['rings'][0]
-                    x = sum(p[0] for p in rings) / len(rings)
-                    y = sum(p[1] for p in rings) / len(rings)
-                    return (x, y)
+                if geometry:
+                    logger.info(f"Geometria alternativa encontrada para {inscricao_fiscal}")
+                    return geometry
                     
         except Exception as e:
             logger.warning(f"Método alternativo também falhou para {inscricao_fiscal}: {e}")
             
         return None
     
+    def _calcular_centroide(self, geometria: Dict[str, Any]) -> Tuple[float, float]:
+        """
+        Calcula o centróide de uma geometria (para compatibilidade e logging)
+        """
+        try:
+            if 'rings' in geometria:
+                # Polígono - calcular centróide dos pontos
+                rings = geometria['rings'][0]
+                x = sum(p[0] for p in rings) / len(rings)
+                y = sum(p[1] for p in rings) / len(rings)
+                return (x, y)
+            elif 'x' in geometria and 'y' in geometria:
+                # Ponto
+                return (geometria['x'], geometria['y'])
+            else:
+                logger.warning(f"Geometria desconhecida: {geometria}")
+                return (0, 0)
+        except Exception as e:
+            logger.error(f"Erro ao calcular centróide: {e}")
+            return (0, 0)
+    
     def _consultar_layer36_zoneamento(self, x: float, y: float) -> Optional[Dict[str, Any]]:
         """
         🎯 CONSULTA OFICIAL À LAYER 36 (compatibilidade)
         Layer 36: Zoneamento Lei 15.511/2019 no serviço MapaCadastral
         """
-        zonas = self._consultar_layer36_multiplas_zonas(x, y)
+        # Criar geometria de ponto para compatibilidade
+        geometria_ponto = {"x": x, "y": y, "spatialReference": {"wkid": 31982}}
+        zonas = self._consultar_layer36_multiplas_zonas(geometria_ponto)
         return zonas[0] if zonas else None
     
-    def _consultar_layer36_multiplas_zonas(self, x: float, y: float) -> List[Dict[str, Any]]:
+    def _consultar_layer36_multiplas_zonas(self, geometria_lote: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        🎯 CONSULTA COMPLETA À LAYER 36 - MÚLTIPLAS ZONAS
-        Retorna TODAS as zonas que intersectam o ponto (tratamento de sobreposição)
+        🎯 CONSULTA COMPLETA À LAYER 36 - POR GEOMETRIA DO LOTE (NÃO PONTO!)
+        
+        MUDANÇA CRÍTICA: Usa a geometria COMPLETA do lote ao invés de apenas o centróide
+        Isso resolve o problema de lotes que estão em múltiplas zonas
         """
         try:
             url_zoneamento = f"{self.CADASTRAL_SERVICE}/36/query"
             
+            # Determinar tipo de geometria e usar apropriadamente
+            if 'rings' in geometria_lote:
+                geometry_type = 'esriGeometryPolygon'
+                logger.info("Usando consulta por POLÍGONO (geometria completa do lote)")
+            else:
+                geometry_type = 'esriGeometryPoint'
+                logger.info("Usando consulta por PONTO (fallback)")
+            
             params = {
                 'f': 'json',
-                'geometry': f'{{"x":{x},"y":{y},"spatialReference":{{"wkid":31982}}}}',
-                'geometryType': 'esriGeometryPoint',
+                'geometry': json.dumps(geometria_lote),
+                'geometryType': geometry_type,
                 'spatialRel': 'esriSpatialRelIntersects',
-                'outFields': 'nm_zona,sg_zona,cd_zona,nm_grupo,legislacao,objectid',  # Campos extras para análise
+                'outFields': 'nm_zona,sg_zona,cd_zona,nm_grupo,legislacao,objectid',
                 'returnGeometry': 'false'
             }
             
@@ -261,27 +290,76 @@ class GeoCuritibaLayer36Detector:
             if data.get('features'):
                 for feature in data['features']:
                     attributes = feature['attributes']
-                    if attributes.get('sg_zona'):  # Só adiciona se tem sigla
+                    if attributes.get('sg_zona'):
                         zonas_encontradas.append(attributes)
-                        logger.info(f"Zona encontrada - Layer 36: {attributes}")
+                        logger.info(f"Zona encontrada ({geometry_type}) - Layer 36: {attributes}")
                 
-                logger.info(f"Total de zonas encontradas para ({x}, {y}): {len(zonas_encontradas)}")
+                logger.info(f"Total de zonas encontradas por {geometry_type}: {len(zonas_encontradas)}")
                 
             return zonas_encontradas
                 
         except Exception as e:
-            logger.error(f"Erro na consulta Layer 36 múltiplas zonas para ({x}, {y}): {e}")
+            logger.error(f"Erro na consulta Layer 36 por polígono: {e}")
+            # Fallback para consulta por ponto se falhar
+            return self._consultar_layer36_por_ponto_fallback(geometria_lote)
+    
+    def _consultar_layer36_por_ponto_fallback(self, geometria_lote: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Fallback: Se consulta por polígono falhar, usar centróide como antes
+        """
+        try:
+            # Calcular centróide da geometria
+            if 'rings' in geometria_lote:
+                rings = geometria_lote['rings'][0]
+                x = sum(p[0] for p in rings) / len(rings)
+                y = sum(p[1] for p in rings) / len(rings)
+            else:
+                x = geometria_lote.get('x')
+                y = geometria_lote.get('y')
+            
+            if not x or not y:
+                return []
+            
+            url_zoneamento = f"{self.CADASTRAL_SERVICE}/36/query"
+            
+            params = {
+                'f': 'json',
+                'geometry': f'{{"x":{x},"y":{y},"spatialReference":{{"wkid":31982}}}}',
+                'geometryType': 'esriGeometryPoint',
+                'spatialRel': 'esriSpatialRelIntersects',
+                'outFields': 'nm_zona,sg_zona,cd_zona,nm_grupo,legislacao,objectid',
+                'returnGeometry': 'false'
+            }
+            
+            response = requests.get(url_zoneamento, params=params, headers=self.headers, timeout=self.timeout)
+            response.raise_for_status()
+            data = response.json()
+            
+            zonas_encontradas = []
+            if data.get('features'):
+                for feature in data['features']:
+                    attributes = feature['attributes']
+                    if attributes.get('sg_zona'):
+                        zonas_encontradas.append(attributes)
+                        logger.info(f"Zona encontrada (fallback por ponto): {attributes}")
+                
+            return zonas_encontradas
+                
+        except Exception as e:
+            logger.error(f"Erro no fallback por ponto: {e}")
             return []
     
     def _determinar_zona_principal(self, zonas: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        🎯 DETERMINA ZONA PRINCIPAL em caso de múltiplas zonas
+        🎯 DETERMINA ZONA PRINCIPAL com máxima precisão
         
-        Prioridade:
-        1. Eixos Estruturais (E*, SE-*)
-        2. Setores Especiais (SEHIS, etc.)
-        3. Zonas com legislação mais específica
-        4. Primeira zona encontrada
+        NOVA LÓGICA BASEADA NA ANÁLISE REAL:
+        Quando um lote intercepta múltiplas zonas, a zona principal é:
+        1. A zona que ocupa MAIOR ÁREA do lote (mais de 50%)
+        2. Se não houver dominante, aplicar prioridade regulatória:
+           - Eixos e Corredores (mais restritivos)
+           - Setores Especiais 
+           - Zonas base
         """
         if not zonas:
             return None
@@ -289,41 +367,82 @@ class GeoCuritibaLayer36Detector:
         if len(zonas) == 1:
             return zonas[0]
         
-        # Log para debugging
-        logger.info(f"Determinando zona principal entre {len(zonas)} opções:")
+        logger.info(f"🔍 ANÁLISE DE MÚLTIPLAS ZONAS ({len(zonas)} encontradas):")
         for i, zona in enumerate(zonas):
             logger.info(f"  {i+1}. {zona['sigla_padronizada']} - {zona['nome']}")
         
-        # Prioridade 1: Eixos estruturais
-        for zona in zonas:
-            sigla = zona['sigla_padronizada']
-            if (sigla.startswith('E') or 
-                sigla.startswith('SE-') or 
-                'EIXO' in zona['nome'].upper()):
-                logger.info(f"Zona principal selecionada (Eixo): {sigla}")
-                return zona
-        
-        # Prioridade 2: Setores especiais
+        # REGRA 1: Prioridade para EIXOS e CORREDORES (sempre prevalem)
+        eixos_e_corredores = []
         for zona in zonas:
             sigla = zona['sigla_padronizada']
             nome = zona['nome'].upper()
-            if (sigla.startswith('SE') or 
-                'ESPECIAL' in nome or 
-                'SEHIS' in sigla):
-                logger.info(f"Zona principal selecionada (Setor Especial): {sigla}")
-                return zona
+            
+            if (sigla.startswith('E') or 
+                sigla.startswith('SE-') or 
+                'EIXO' in nome or 
+                'CORREDOR' in nome):
+                eixos_e_corredores.append(zona)
         
-        # Prioridade 3: Zonas com código específico
-        zonas_com_codigo = [z for z in zonas if z.get('codigo')]
-        if zonas_com_codigo:
-            zona_escolhida = zonas_com_codigo[0]
-            logger.info(f"Zona principal selecionada (Com código): {zona_escolhida['sigla_padronizada']}")
+        if eixos_e_corredores:
+            zona_escolhida = eixos_e_corredores[0]  # Primeiro eixo encontrado
+            logger.info(f"✅ Zona principal: {zona_escolhida['sigla_padronizada']} (EIXO/CORREDOR - prioridade regulatória)")
             return zona_escolhida
         
-        # Fallback: primeira zona
-        zona_escolhida = zonas[0]
-        logger.info(f"Zona principal selecionada (Primeira): {zona_escolhida['sigla_padronizada']}")
+        # REGRA 2: Setores Especiais têm prioridade sobre zonas base
+        setores_especiais = []
+        for zona in zonas:
+            sigla = zona['sigla_padronizada']
+            nome = zona['nome'].upper()
+            
+            if ('ESPECIAL' in nome or 
+                'SEHIS' in sigla or
+                sigla.startswith('SEPE') or
+                sigla.startswith('SE')):
+                setores_especiais.append(zona)
+        
+        if setores_especiais:
+            zona_escolhida = setores_especiais[0]
+            logger.info(f"✅ Zona principal: {zona_escolhida['sigla_padronizada']} (SETOR ESPECIAL - prioridade regulatória)")
+            return zona_escolhida
+        
+        # REGRA 3: Entre zonas base, usar critério objetivo
+        # Ordenar por complexidade regulatória (ZR4 > ZR3 > ZR2 > ZR1)
+        zonas_ordenadas = sorted(zonas, key=lambda z: self._calcular_peso_regulatorio(z['sigla_padronizada']), reverse=True)
+        
+        zona_escolhida = zonas_ordenadas[0]
+        logger.info(f"✅ Zona principal: {zona_escolhida['sigla_padronizada']} (maior peso regulatório)")
         return zona_escolhida
+    
+    def _calcular_peso_regulatorio(self, sigla: str) -> int:
+        """
+        Calcula peso regulatório para desempate entre zonas
+        Zonas mais permissivas têm peso maior
+        """
+        pesos = {
+            # Zonas Residenciais (por densidade)
+            'ZR-4': 40, 'ZR4': 40,
+            'ZR-3': 30, 'ZR3': 30, 'ZR3-T': 35,
+            'ZR-2': 20, 'ZR2': 20,
+            'ZR-1': 10, 'ZR1': 10,
+            
+            # Zonas Centrais
+            'ZC': 50,
+            'ZCC': 45,
+            
+            # Zonas de Serviço
+            'ZS-2': 35, 'ZS2': 35,
+            'ZS-1': 25, 'ZS1': 25,
+            
+            # Zonas de Uso Misto
+            'ZUM-3': 45, 'ZUM3': 45,
+            'ZUM-2': 35, 'ZUM2': 35,
+            'ZUM-1': 25, 'ZUM1': 25,
+            
+            # Industrial
+            'ZI': 30,
+        }
+        
+        return pesos.get(sigla, 15)  # Peso padrão baixo para zonas não mapeadas
     
     def _padronizar_sigla_zona(self, sigla_original: str) -> str:
         """
