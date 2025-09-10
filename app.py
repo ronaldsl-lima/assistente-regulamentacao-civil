@@ -30,6 +30,8 @@ importlib.reload(gis_zone_detector)
 from gis_zone_detector import detect_zone_professional
 
 from zoneamento_integration import enhanced_zone_lookup
+from zoneamento_curitiba import DetectorZoneamento
+from geocuritiba_integration import GeoCuritibaAPI, integrar_geocuritiba_app
 
 # Configuração de logging otimizada
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -128,6 +130,9 @@ class ResourceManager:
 
 # Instância global do gerenciador
 resource_manager = ResourceManager()
+
+# Instância global do detector de zoneamento
+detector_zoneamento = DetectorZoneamento()
 
 class ProjectDataCalculator:
     """Calculadora de parâmetros urbanísticos do projeto"""
@@ -1177,7 +1182,7 @@ class AnalysisEngine:
     
     def run_analysis(self, cidade: str, endereco: str, memorial: str, 
                      zona_manual: Optional[str] = None, usar_zona_manual: bool = False,
-                     parametros_avancados: dict = None) -> Dict[str, Any]:
+                     parametros_avancados: dict = None, dados_formulario: dict = None) -> Dict[str, Any]:
         """Execução otimizada da análise"""
         
         try:
@@ -1243,6 +1248,13 @@ class AnalysisEngine:
                 except ImportError:
                     print(f"DEBUG ZONEAMENTO - Sistema de fallback não disponível")
             
+            # Validação com parâmetros da zona detectada pelo sistema robusto
+            validacoes_robustas = []
+            if dados_formulario and dados_formulario.get('zona_parametros'):
+                zona_parametros = dados_formulario['zona_parametros']
+                validacoes_robustas = self._validar_conformidade_robusta(dados_formulario, zona_parametros)
+                print(f"DEBUG ROBUST - Validações realizadas: {len(validacoes_robustas)} itens")
+            
             # 3. Extrair parâmetros
             parametros = self.extractor.extract(memorial)
             
@@ -1294,6 +1306,7 @@ class AnalysisEngine:
                 'zona_info': zona_detection_info,
                 'zona_detection_details': zona_detection_details,
                 'parametros': parametros,
+                'validacoes_robustas': validacoes_robustas,
                 'info_projeto': {
                     'Endereço': endereco if endereco else 'NÃO INFORMADO',
                     'Zona_de_Uso': zona_detection_info,
@@ -1430,6 +1443,108 @@ class AnalysisEngine:
         """
         
         return query
+    
+    def _validar_conformidade_robusta(self, dados_formulario: dict, zona_parametros) -> List[Dict[str, Any]]:
+        """Validação detalhada com parâmetros da zona detectada pelo sistema robusto"""
+        validacoes = []
+        
+        # Taxa de Ocupação
+        if dados_formulario.get('area_lote', 0) > 0 and dados_formulario.get('area_projecao', 0) > 0:
+            taxa_projeto = (dados_formulario['area_projecao'] / dados_formulario['area_lote']) * 100
+            taxa_permitida = zona_parametros.taxa_ocupacao_maxima
+            
+            validacoes.append({
+                'parametro': 'Taxa de Ocupação',
+                'valor_projeto': f"{taxa_projeto:.1f}%",
+                'valor_permitido': f"{taxa_permitida}%",
+                'conforme': taxa_projeto <= taxa_permitida,
+                'observacao': f"Projeto: {taxa_projeto:.1f}% | Máximo: {taxa_permitida}%"
+            })
+        
+        # Coeficiente de Aproveitamento
+        if dados_formulario.get('area_lote', 0) > 0 and dados_formulario.get('area_construida', 0) > 0:
+            ca_projeto = dados_formulario['area_construida'] / dados_formulario['area_lote']
+            ca_basico = zona_parametros.coef_aproveitamento_basico
+            ca_maximo = zona_parametros.coef_aproveitamento_maximo or ca_basico
+            
+            # Verificar se usa potencial adicional
+            utiliza_potencial = dados_formulario.get('utiliza_potencial_adicional', False)
+            
+            if utiliza_potencial:
+                limite_aplicavel = ca_maximo
+                observacao = f"Projeto: {ca_projeto:.2f} | Máximo com potencial adicional: {ca_maximo}"
+            else:
+                limite_aplicavel = ca_basico
+                observacao = f"Projeto: {ca_projeto:.2f} | Básico: {ca_basico}"
+            
+            validacoes.append({
+                'parametro': 'Coeficiente de Aproveitamento',
+                'valor_projeto': f"{ca_projeto:.2f}",
+                'valor_permitido': f"{limite_aplicavel:.2f}",
+                'conforme': ca_projeto <= limite_aplicavel,
+                'observacao': observacao
+            })
+        
+        # Altura da Edificação
+        if dados_formulario.get('num_pavimentos', 0) > 0:
+            altura_projeto = dados_formulario['num_pavimentos']
+            altura_maxima = zona_parametros.altura_maxima
+            
+            validacoes.append({
+                'parametro': 'Altura da Edificação',
+                'valor_projeto': f"{altura_projeto} pavimentos",
+                'valor_permitido': f"{altura_maxima} pavimentos",
+                'conforme': altura_projeto <= altura_maxima,
+                'observacao': f"Projeto: {altura_projeto} | Máximo: {altura_maxima} pavimentos"
+            })
+        
+        # Afastamentos (Recuos)
+        if zona_parametros.recuo_frontal_minimo > 0:
+            recuo_frontal = dados_formulario.get('recuo_frontal', 0)
+            recuo_minimo = zona_parametros.recuo_frontal_minimo
+            
+            validacoes.append({
+                'parametro': 'Recuo Frontal',
+                'valor_projeto': f"{recuo_frontal}m",
+                'valor_permitido': f"≥ {recuo_minimo}m",
+                'conforme': recuo_frontal >= recuo_minimo,
+                'observacao': f"Projeto: {recuo_frontal}m | Mínimo: {recuo_minimo}m"
+            })
+        
+        # Taxa de Permeabilidade
+        if dados_formulario.get('area_lote', 0) > 0 and zona_parametros.taxa_permeabilidade_minima > 0:
+            area_permeavel_projeto = dados_formulario.get('area_permeavel', 0)
+            taxa_projeto = (area_permeavel_projeto / dados_formulario['area_lote']) * 100
+            taxa_minima = zona_parametros.taxa_permeabilidade_minima
+            
+            validacoes.append({
+                'parametro': 'Taxa de Permeabilidade',
+                'valor_projeto': f"{taxa_projeto:.1f}%",
+                'valor_permitido': f"≥ {taxa_minima}%",
+                'conforme': taxa_projeto >= taxa_minima,
+                'observacao': f"Projeto: {taxa_projeto:.1f}% | Mínimo: {taxa_minima}%"
+            })
+        
+        # Densidade Populacional (se aplicável a uso residencial)
+        categoria_uso = dados_formulario.get('categoria_uso', '').lower()
+        if 'residencial' in categoria_uso and zona_parametros.densidade_maxima > 0:
+            num_unidades = dados_formulario.get('num_unidades_habitacionais', 0)
+            area_lote_ha = dados_formulario.get('area_lote', 0) / 10000  # converter m² para ha
+            
+            if area_lote_ha > 0 and num_unidades > 0:
+                # Assumir 2.5 habitantes por unidade habitacional (padrão IBGE)
+                densidade_projeto = (num_unidades * 2.5) / area_lote_ha
+                densidade_maxima = zona_parametros.densidade_maxima
+                
+                validacoes.append({
+                    'parametro': 'Densidade Populacional',
+                    'valor_projeto': f"{densidade_projeto:.0f} hab/ha",
+                    'valor_permitido': f"≤ {densidade_maxima} hab/ha",
+                    'conforme': densidade_projeto <= densidade_maxima,
+                    'observacao': f"Projeto: {densidade_projeto:.0f} hab/ha | Máximo: {densidade_maxima} hab/ha"
+                })
+        
+        return validacoes
 
 # UI Functions (otimizadas)
 def configurar_pagina():
@@ -1441,7 +1556,7 @@ def configurar_pagina():
         initial_sidebar_state="expanded"
     )
     
-    # CSS customizado para aumentar largura da sidebar apenas em desktop
+    # CSS básico para estilos
     st.markdown("""
     <style>
         /* Aumentar largura da sidebar para desktop (tela >= 768px) */
@@ -1461,13 +1576,43 @@ def configurar_pagina():
             }
         }
         
-        /* Manter responsividade para mobile (tela < 768px) */
-        @media (max-width: 767px) {
-            section[data-testid="stSidebar"] > div {
-                width: 100% !important;
+        /* Estilos para os resultados */
+        .resultado-aprovado {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        .resultado-reprovado {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        /* Melhora visual dos botões */
+        .stButton > button {
+            transition: all 0.2s ease;
+            border-radius: 0.5rem;
+        }
+        
+        .stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        /* Responsividade para downloads */
+        @media (max-width: 640px) {
+            .stColumns {
+                flex-direction: column;
             }
-            section[data-testid="stSidebar"] {
+            
+            .stColumns > div {
                 width: 100% !important;
+                margin-bottom: 0.5rem;
             }
         }
     </style>
@@ -1515,10 +1660,118 @@ def criar_formulario_estruturado():
     )
     
     inscricao_imobiliaria = st.sidebar.text_input(
-        "Inscrição Imobiliária:",
+        "Inscrição Imobiliária: *",
         placeholder="Ex: 03000180090017",
-        help="Digite o número da inscrição imobiliária do imóvel (opcional)"
+        help="Digite o número da inscrição imobiliária do imóvel (obrigatório). Esta informação é encontrada no carnê do IPTU do proprietário do imóvel."
     )
+    
+    # =============================================
+    # DETECÇÃO AUTOMÁTICA DE ZONA
+    # =============================================
+    zona_detectada = None
+    zona_confianca = 0.0
+    zona_metodo = ""
+    zona_parametros = None
+    
+    if cidade == "Curitiba" and (endereco or inscricao_imobiliaria):
+        # Opção de método de detecção
+        metodo_deteccao = st.sidebar.radio(
+            "Método de Detecção:",
+            ["🎯 Sistema Robusto (Offline)", "🌐 GeoCuritiba IPPUC (Online)"],
+            help="Escolha entre detecção offline (rápida) ou busca oficial (mais precisa)"
+        )
+        
+        if metodo_deteccao == "🌐 GeoCuritiba IPPUC (Online)":
+            # Integração com GeoCuritiba IPPUC
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col2:
+                buscar_ippuc = st.button("🔍", help="Buscar no GeoCuritiba IPPUC", key="buscar_ippuc")
+            
+            if buscar_ippuc:
+                with st.spinner("Consultando GeoCuritiba IPPUC..."):
+                    try:
+                        dados_ippuc = integrar_geocuritiba_app(
+                            indicacao=inscricao_imobiliaria,
+                            endereco=endereco,
+                            automatico=True
+                        )
+                        
+                        if dados_ippuc and dados_ippuc.get('encontrado'):
+                            zona_detectada = dados_ippuc.get('zoneamento')
+                            zona_confianca = 100.0  # Dados oficiais = 100% confiança
+                            zona_metodo = "GeoCuritiba IPPUC (Oficial)"
+                            
+                            # Criar objeto compatível com os parâmetros
+                            if dados_ippuc.get('parametros'):
+                                parametros_ippuc = dados_ippuc['parametros']
+                                
+                                # Converter para formato compatível
+                                class ParametrosIppuc:
+                                    def __init__(self, params):
+                                        self.coef_aproveitamento_basico = params.get('coef_aproveitamento_basico', 1.0)
+                                        self.coef_aproveitamento_maximo = params.get('coef_aproveitamento_maximo', 1.0)
+                                        self.taxa_ocupacao_maxima = params.get('taxa_ocupacao_maxima', 60.0)
+                                        self.taxa_permeabilidade_minima = params.get('taxa_permeabilidade_minima', 25.0)
+                                        self.altura_maxima = params.get('altura_maxima', 15.0)
+                                        self.recuo_frontal_minimo = params.get('recuo_frontal_minimo', 5.0)
+                                        self.densidade_maxima = 200.0  # Padrão
+                                
+                                zona_parametros = ParametrosIppuc(parametros_ippuc)
+                            
+                            # Salvar dados completos
+                            st.session_state['dados_geocuritiba'] = dados_ippuc
+                            
+                            # Exibir informações da detecção oficial
+                            st.sidebar.success(f"🎯 Zona OFICIAL: **{zona_detectada}**")
+                            st.sidebar.info(f"🏛️ Fonte: GeoCuritiba IPPUC | Confiança: 100%")
+                            
+                            if dados_ippuc.get('area_lote'):
+                                st.sidebar.info(f"📐 Área do Lote: {dados_ippuc['area_lote']:.2f} m²")
+                            
+                            if zona_parametros:
+                                with st.sidebar.expander("📋 Parâmetros Oficiais da Zona"):
+                                    st.write(f"**{zona_detectada}** (Dados IPPUC)")
+                                    st.write(f"CA Básico: {zona_parametros.coef_aproveitamento_basico}")
+                                    st.write(f"CA Máximo: {zona_parametros.coef_aproveitamento_maximo}")
+                                    st.write(f"TO Máxima: {zona_parametros.taxa_ocupacao_maxima}%")
+                                    st.write(f"TP Mínima: {zona_parametros.taxa_permeabilidade_minima}%")
+                                    st.write(f"Altura Máx.: {zona_parametros.altura_maxima}m")
+                                    if zona_parametros.recuo_frontal_minimo > 0:
+                                        st.write(f"Recuo Frontal Mín.: {zona_parametros.recuo_frontal_minimo}m")
+                        else:
+                            st.sidebar.error("❌ Dados não encontrados no GeoCuritiba")
+                            st.sidebar.info("Verifique a inscrição imobiliária ou tente o método offline")
+                    except Exception as e:
+                        st.sidebar.error(f"⚠️ Erro na consulta GeoCuritiba: {str(e)}")
+        
+        else:
+            # Sistema offline original
+            try:
+                resultado_deteccao = detector_zoneamento.detectar_zona(
+                    endereco=endereco if endereco else None,
+                    inscricao=inscricao_imobiliaria if inscricao_imobiliaria else None
+                )
+                
+                if resultado_deteccao and resultado_deteccao['zona']:
+                    zona_detectada = resultado_deteccao['zona']
+                    zona_confianca = resultado_deteccao['confianca']
+                    zona_metodo = resultado_deteccao['metodo']
+                    zona_parametros = resultado_deteccao.get('parametros')
+                    
+                    # Exibir informações da detecção
+                    st.sidebar.success(f"🎯 Zona detectada: **{zona_detectada}**")
+                    st.sidebar.info(f"📊 Confiança: {zona_confianca:.0f}% | Método: {zona_metodo}")
+                    
+                    if zona_parametros:
+                        with st.sidebar.expander("📋 Ver Parâmetros da Zona"):
+                            st.write(f"**{zona_detectada}**")
+                            st.write(f"Coeficiente Básico: {zona_parametros.coef_aproveitamento_basico}")
+                            st.write(f"Taxa de Ocupação: {zona_parametros.taxa_ocupacao_maxima}%")
+                            st.write(f"Altura Máxima: {zona_parametros.altura_maxima} pavimentos")
+                            if zona_parametros.recuo_frontal_minimo > 0:
+                                st.write(f"Recuo Frontal Mín.: {zona_parametros.recuo_frontal_minimo}m")
+            except Exception as e:
+                st.sidebar.warning(f"⚠️ Erro na detecção de zona: {str(e)}")
     
     # =============================================
     # SEÇÃO 2: Dados do Lote
@@ -1532,21 +1785,104 @@ def criar_formulario_estruturado():
         help="Área total do terreno em metros quadrados"
     )
     
-    uso_pretendido = st.sidebar.selectbox(
-        "Uso Pretendido da Edificação:",
+    # Característica do Lote
+    lote_esquina = st.sidebar.checkbox(
+        "O lote é de esquina?",
+        help="Lotes de esquina possuem regras específicas de recuos e afastamentos, com dois recuos frontais"
+    )
+    
+    # Tipo de Obra
+    tipo_obra = st.sidebar.selectbox(
+        "Tipo de Obra:",
         [
             "Selecione...",
-            "Residencial Unifamiliar",
-            "Residencial Multifamiliar",
+            "Construção Nova",
+            "Reforma com Ampliação",
+            "Reforma sem Ampliação", 
+            "Regularização",
+            "Demolição e Reconstrução",
+            "Outros"
+        ],
+        help="O tipo de obra pode influenciar na aplicação de certas regulamentações específicas"
+    )
+    
+    # Topografia do Lote
+    topografia_acidentada = st.sidebar.checkbox(
+        "O lote possui aclive/declive acentuado?",
+        help="Terrenos com topografia acidentada têm regras específicas para medição de altura e definição de subsolos"
+    )
+    
+    # Uso da Edificação - Sistema hierárquico
+    categoria_uso = st.sidebar.selectbox(
+        "Categoria de Uso:",
+        [
+            "Selecione...",
+            "Residencial",
             "Comercial",
             "Serviços",
             "Industrial",
             "Institucional",
-            "Misto (Residencial + Comercial)",
+            "Misto",
             "Outros"
         ],
-        help="Selecione o uso principal da edificação"
+        help="Categoria principal do uso da edificação"
     )
+    
+    # Subcategoria baseada na categoria principal
+    uso_pretendido = "Selecione..."
+    if categoria_uso == "Residencial":
+        uso_pretendido = st.sidebar.selectbox(
+            "Subcategoria Residencial:",
+            [
+                "Selecione...",
+                "Unifamiliar",
+                "Multifamiliar (até 4 unidades)",
+                "Multifamiliar (mais de 4 unidades)",
+                "Conjunto Habitacional",
+                "Habitação de Interesse Social"
+            ],
+            help="Especifique o tipo de uso residencial"
+        )
+    elif categoria_uso == "Comercial":
+        uso_pretendido = st.sidebar.selectbox(
+            "Subcategoria Comercial:",
+            [
+                "Selecione...",
+                "Comércio Vicinal (bairro)",
+                "Comércio Setorial",
+                "Centro Comercial/Shopping",
+                "Atacado",
+                "Outros"
+            ],
+            help="Especifique o tipo de comércio"
+        )
+    elif categoria_uso == "Serviços":
+        uso_pretendido = st.sidebar.selectbox(
+            "Subcategoria Serviços:",
+            [
+                "Selecione...",
+                "Serviços Profissionais",
+                "Serviços de Saúde",
+                "Educação",
+                "Hotelaria",
+                "Outros"
+            ],
+            help="Especifique o tipo de serviço"
+        )
+    elif categoria_uso == "Misto":
+        uso_pretendido = st.sidebar.selectbox(
+            "Tipo de Uso Misto:",
+            [
+                "Selecione...",
+                "Residencial + Comercial",
+                "Residencial + Serviços",
+                "Comercial + Serviços",
+                "Outros"
+            ],
+            help="Especifique a combinação de usos"
+        )
+    elif categoria_uso not in ["Selecione...", "Outros"]:
+        uso_pretendido = categoria_uso
     
     # =============================================
     # SEÇÃO 3: Restrições do Lote
@@ -1599,48 +1935,116 @@ def criar_formulario_estruturado():
         "Área Construída Total (m²):",
         min_value=0.0,
         step=1.0,
-        help="Somatório das áreas de todos os pavimentos"
+        help="Somatório das áreas de todos os pavimentos. Inclui áreas cobertas como garagens e varandas conforme definição da prefeitura. Considere áreas não computáveis se aplicável."
     )
     
     altura_edificacao = st.sidebar.number_input(
         "Altura Total da Edificação (m):",
         min_value=0.0,
         step=0.1,
-        help="Altura total da edificação em metros"
+        help="Altura total medida a partir do nível médio do terreno (RN). Pode incluir platibanda e caixa d'água conforme regulamentação local."
     )
     
     num_pavimentos = st.sidebar.number_input(
         "Número de Pavimentos:",
         min_value=1,
         step=1,
-        help="Quantidade total de pavimentos da edificação"
+        help="Quantidade total de pavimentos da edificação (incluindo subsolos se computáveis)"
     )
+    
+    # Número de Unidades
+    st.sidebar.subheader("📊 Unidades da Edificação")
+    
+    num_unidades_habitacionais = st.sidebar.number_input(
+        "Número de Unidades Habitacionais:",
+        min_value=0,
+        step=1,
+        help="Quantidade de unidades residenciais (apartamentos, casas). Essencial para cálculo de vagas de estacionamento e densidade."
+    )
+    
+    num_unidades_nao_habitacionais = st.sidebar.number_input(
+        "Número de Unidades Não Habitacionais:",
+        min_value=0,
+        step=1,
+        help="Quantidade de unidades comerciais, de serviços ou outras. Importante para cálculo de vagas e análise de uso misto."
+    )
+    
+    # Potencial Construtivo Adicional
+    utiliza_potencial_adicional = st.sidebar.checkbox(
+        "Utilizará Potencial Construtivo Adicional?",
+        help="Ex: Outorga Onerosa, Transferência do Direito de Construir. Permite área construída superior ao coeficiente básico."
+    )
+    
+    if utiliza_potencial_adicional:
+        tipo_potencial = st.sidebar.selectbox(
+            "Tipo de Potencial Adicional:",
+            [
+                "Selecione...",
+                "Outorga Onerosa do Direito de Construir",
+                "Transferência do Direito de Construir (TDC)",
+                "CEPAC (Curitiba)",
+                "Outros"
+            ],
+            help="Especifique o instrumento urbanístico utilizado para obter potencial construtivo adicional"
+        )
     
     # =============================================
     # SEÇÃO 5: Afastamentos (Recuos)
     # =============================================
     st.sidebar.header("↔️ 5. Afastamentos (Recuos)")
     
-    recuo_frontal = st.sidebar.number_input(
-        "Recuo Frontal (m):",
-        min_value=0.0,
-        step=0.1,
-        help="Distância da edificação até a divisa frontal do lote"
-    )
-    
-    recuo_lateral_dir = st.sidebar.number_input(
-        "Recuo Lateral Direito (m):",
-        min_value=0.0,
-        step=0.1,
-        help="Distância da edificação até a divisa lateral direita"
-    )
-    
-    recuo_lateral_esq = st.sidebar.number_input(
-        "Recuo Lateral Esquerdo (m):",
-        min_value=0.0,
-        step=0.1,
-        help="Distância da edificação até a divisa lateral esquerda"
-    )
+    # Campos dinâmicos baseados no tipo de lote
+    if lote_esquina:
+        st.sidebar.info("🔄 Lote de esquina detectado - Dois recuos frontais obrigatórios")
+        
+        recuo_frontal = st.sidebar.number_input(
+            "Recuo Frontal Principal (m):",
+            min_value=0.0,
+            step=0.1,
+            help="Distância da edificação até a divisa da via principal"
+        )
+        
+        recuo_frontal_secundario = st.sidebar.number_input(
+            "Recuo Frontal Secundário (m):",
+            min_value=0.0,
+            step=0.1,
+            help="Distância da edificação até a divisa da via secundária (segundo recuo frontal)"
+        )
+        
+        recuo_lateral_dir = st.sidebar.number_input(
+            "Recuo Lateral (m):",
+            min_value=0.0,
+            step=0.1,
+            help="Distância da edificação até a divisa lateral (lote de esquina tem apenas uma lateral)"
+        )
+        
+        # Para lotes de esquina, não há recuo lateral esquerdo
+        recuo_lateral_esq = 0.0
+        
+    else:
+        recuo_frontal = st.sidebar.number_input(
+            "Recuo Frontal (m):",
+            min_value=0.0,
+            step=0.1,
+            help="Distância da edificação até a divisa frontal do lote"
+        )
+        
+        recuo_lateral_dir = st.sidebar.number_input(
+            "Recuo Lateral Direito (m):",
+            min_value=0.0,
+            step=0.1,
+            help="Distância da edificação até a divisa lateral direita"
+        )
+        
+        recuo_lateral_esq = st.sidebar.number_input(
+            "Recuo Lateral Esquerdo (m):",
+            min_value=0.0,
+            step=0.1,
+            help="Distância da edificação até a divisa lateral esquerda"
+        )
+        
+        # Para lotes normais, não há segundo recuo frontal
+        recuo_frontal_secundario = 0.0
     
     recuo_fundos = st.sidebar.number_input(
         "Recuo de Fundos (m):",
@@ -1669,70 +2073,71 @@ def criar_formulario_estruturado():
     )
     
     # =============================================
-    # OPÇÕES AVANÇADAS
+    # SEÇÃO 7: Opções Avançadas
     # =============================================
-    with st.sidebar.expander("⚙️ Opções Avançadas"):
-        # Zona Manual
-        zona_manual = st.sidebar.text_input(
-            "Zona Manual:",
-            placeholder="Ex: ZR-4, ZCC.4",
-            help="Informe a zona se conhecida (opcional)"
-        )
-        usar_zona_manual = st.sidebar.checkbox(
-            "Usar zona informada manualmente",
-            help="Marque para usar a zona informada ao invés da detecção automática"
-        )
-        
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**🔧 Parâmetros Específicos**")
-        
-        # Conversão de altura personalizada
-        st.sidebar.markdown("**Altura por Pavimento:**")
-        altura_personalizada_pav = st.sidebar.number_input(
-            "Altura por pavimento (m):",
-            min_value=2.4,
-            max_value=4.0,
-            value=3.0,
-            step=0.1,
-            help="Altura personalizada para conversão metros ↔ pavimentos"
-        )
-        
-        incluir_atico = st.sidebar.checkbox(
-            "Incluir ático/cobertura no cálculo",
-            help="Considera ático e cobertura no cálculo de altura total"
-        )
-        
-        # Cálculo de área permeável
-        st.sidebar.markdown("**Área Permeável:**")
-        incluir_varandas = st.sidebar.checkbox(
-            "Incluir varandas descobertas",
-            help="Considera varandas descobertas como área permeável"
-        )
-        
-        pavimento_permeavel = st.sidebar.checkbox(
-            "Considerar pavimento permeável",
-            help="Inclui pavimentos permeáveis no cálculo da taxa"
-        )
-        
-        # Tratamento de recuos
-        st.sidebar.markdown("**Recuos:**")
-        tipo_recuo = st.sidebar.selectbox(
-            "Tipo de recuo:",
-            ["Recuos mínimos", "Recuos obrigatórios"],
-            help="Define se usar valores mínimos ou obrigatórios da legislação"
-        )
-        
-        considerar_marquises = st.sidebar.checkbox(
-            "Considerar marquises e beirais",
-            help="Inclui marquises e beirais no cálculo de recuos"
-        )
+    st.sidebar.header("⚙️ 7. Opções Avançadas")
+    
+    # Zona Manual
+    zona_manual = st.sidebar.text_input(
+        "Zona Manual:",
+        placeholder="Ex: ZR-4, ZCC.4",
+        help="Informe a zona se conhecida (opcional)"
+    )
+    usar_zona_manual = st.sidebar.checkbox(
+        "Usar zona informada manualmente",
+        help="Marque para usar a zona informada ao invés da detecção automática"
+    )
+    
+    st.sidebar.markdown("**🔧 Parâmetros Específicos**")
+    
+    # Conversão de altura personalizada
+    st.sidebar.markdown("**Altura por Pavimento:**")
+    altura_personalizada_pav = st.sidebar.number_input(
+        "Altura por pavimento (m):",
+        min_value=2.4,
+        max_value=4.0,
+        value=3.0,
+        step=0.1,
+        help="Altura personalizada para conversão metros ↔ pavimentos"
+    )
+    
+    incluir_atico = st.sidebar.checkbox(
+        "Incluir ático/cobertura no cálculo",
+        help="Considera ático e cobertura no cálculo de altura total"
+    )
+    
+    # Cálculo de área permeável
+    st.sidebar.markdown("**Área Permeável:**")
+    incluir_varandas = st.sidebar.checkbox(
+        "Incluir varandas descobertas",
+        help="Considera varandas descobertas como área permeável"
+    )
+    
+    pavimento_permeavel = st.sidebar.checkbox(
+        "Considerar pavimento permeável",
+        help="Inclui pavimentos permeáveis no cálculo da taxa"
+    )
+    
+    # Tratamento de recuos
+    st.sidebar.markdown("**Recuos:**")
+    tipo_recuo = st.sidebar.selectbox(
+        "Tipo de recuo:",
+        ["Recuos mínimos", "Recuos obrigatórios"],
+        help="Define se usar valores mínimos ou obrigatórios da legislação"
+    )
+    
+    considerar_marquises = st.sidebar.checkbox(
+        "Considerar marquises e beirais",
+        help="Inclui marquises e beirais no cálculo de recuos"
+    )
     
     # =============================================
     # VALIDAÇÕES E CÁLCULOS
     # =============================================
     
-    # VALIDAÇÃO OBRIGATÓRIA: Endereço deve estar preenchido
+    # VALIDAÇÕES OBRIGATÓRIAS: Endereço e Inscrição Imobiliária devem estar preenchidos
     endereco_obrigatorio = bool(endereco and endereco.strip())
+    inscricao_obrigatoria = bool(inscricao_imobiliaria and inscricao_imobiliaria.strip())
     
     # Verificar se outros campos estão preenchidos (complementares)
     campos_complementares = [
@@ -1741,14 +2146,17 @@ def criar_formulario_estruturado():
         inscricao_imobiliaria
     ]
     
-    pelo_menos_um_campo = endereco_obrigatorio and any(campo for campo in campos_complementares)
+    pelo_menos_um_campo = endereco_obrigatorio and inscricao_obrigatoria and any(campo for campo in campos_complementares)
     
     # Validações lógicas
     validacoes_ok = True
     mensagens_erro = []
     
-    # Validação crítica: endereço obrigatório
+    # Validações críticas: endereço e inscrição imobiliária obrigatórios
     if not endereco_obrigatorio:
+        validacoes_ok = False
+    
+    if not inscricao_obrigatoria:
         validacoes_ok = False
     
     if area_lote > 0:
@@ -1792,6 +2200,8 @@ def criar_formulario_estruturado():
     if not pode_analisar:
         if not endereco_obrigatorio:
             st.sidebar.error("🚫 Endereço completo é OBRIGATÓRIO para análise!")
+        elif not inscricao_obrigatoria:
+            st.sidebar.error("🚫 Inscrição Imobiliária é OBRIGATÓRIA para análise!")
         elif not pelo_menos_um_campo:
             st.sidebar.warning("⚠️ Preencha pelo menos um campo complementar para análise")
         elif not validacoes_ok:
@@ -1828,6 +2238,12 @@ def criar_formulario_estruturado():
         'endereco': endereco,
         'inscricao_imobiliaria': inscricao_imobiliaria,
         'area_lote': area_lote,
+        # Novas características do lote
+        'lote_esquina': lote_esquina,
+        'tipo_obra': tipo_obra,
+        'topografia_acidentada': topografia_acidentada,
+        # Uso melhorado
+        'categoria_uso': categoria_uso,
         'uso_pretendido': uso_pretendido,
         'possui_app': possui_app,
         'area_app': area_app,
@@ -1837,7 +2253,15 @@ def criar_formulario_estruturado():
         'area_construida': area_construida,
         'altura_edificacao': altura_edificacao,
         'num_pavimentos': num_pavimentos,
+        # Novas informações de unidades
+        'num_unidades_habitacionais': num_unidades_habitacionais,
+        'num_unidades_nao_habitacionais': num_unidades_nao_habitacionais,
+        # Potencial construtivo adicional
+        'utiliza_potencial_adicional': utiliza_potencial_adicional,
+        'tipo_potencial': tipo_potencial if utiliza_potencial_adicional else None,
+        # Recuos adaptados para lote de esquina
         'recuo_frontal': recuo_frontal,
+        'recuo_frontal_secundario': recuo_frontal_secundario if lote_esquina else 0.0,
         'recuo_lateral_dir': recuo_lateral_dir,
         'recuo_lateral_esq': recuo_lateral_esq,
         'recuo_fundos': recuo_fundos,
@@ -1855,7 +2279,12 @@ def criar_formulario_estruturado():
         'incluir_varandas': incluir_varandas,
         'pavimento_permeavel': pavimento_permeavel,
         'tipo_recuo': tipo_recuo,
-        'considerar_marquises': considerar_marquises
+        'considerar_marquises': considerar_marquises,
+        # Informações da zona detectada
+        'zona_detectada': zona_detectada,
+        'zona_confianca': zona_confianca,
+        'zona_metodo': zona_metodo,
+        'zona_parametros': zona_parametros
     }
 
 def main():
@@ -1881,10 +2310,14 @@ DADOS DO PROJETO URBANÍSTICO
 1. IDENTIFICAÇÃO:
 - Endereço: {dados['endereco'] if dados['endereco'] else 'NÃO INFORMADO'}
 - Inscrição Imobiliária: {dados['inscricao_imobiliaria'] if dados['inscricao_imobiliaria'] else 'NÃO INFORMADA'}
-- Uso Pretendido: {dados['uso_pretendido'] if dados['uso_pretendido'] != 'Selecione...' else 'NÃO INFORMADO'}
+- Categoria de Uso: {dados['categoria_uso'] if dados['categoria_uso'] != 'Selecione...' else 'NÃO INFORMADA'}
+- Uso Específico: {dados['uso_pretendido'] if dados['uso_pretendido'] != 'Selecione...' else 'NÃO INFORMADO'}
+- Tipo de Obra: {dados['tipo_obra'] if dados['tipo_obra'] != 'Selecione...' else 'NÃO INFORMADO'}
 
 2. DADOS DO LOTE:
 - Área Total: {dados['area_lote']:.2f} m² {('(NÃO INFORMADA)' if dados['area_lote'] == 0 else '')}
+- Lote de Esquina: {'SIM' if dados['lote_esquina'] else 'NÃO'}
+- Topografia Acidentada: {'SIM' if dados['topografia_acidentada'] else 'NÃO'}
 - Área de APP: {dados['area_app']:.2f} m² ({('SIM' if dados['possui_app'] else 'NÃO')})
 - Área de Drenagem: {dados['area_drenagem']:.2f} m² ({('SIM' if dados['possui_drenagem'] else 'NÃO')})
 - Área Permeável: {dados['area_permeavel']:.2f} m² {('(NÃO INFORMADA)' if dados['area_permeavel'] == 0 else '')}
@@ -1894,12 +2327,13 @@ DADOS DO PROJETO URBANÍSTICO
 - Área Construída Total: {dados['area_construida']:.2f} m² {('(NÃO INFORMADA)' if dados['area_construida'] == 0 else '')}
 - Altura da Edificação: {dados['altura_edificacao']:.2f} m {('(NÃO INFORMADA)' if dados['altura_edificacao'] == 0 else '')}
 - Número de Pavimentos: {dados['num_pavimentos']} {('(NÃO INFORMADO)' if dados['num_pavimentos'] == 1 else '')}
+- Unidades Habitacionais: {dados['num_unidades_habitacionais']} {('(NÃO INFORMADO)' if dados['num_unidades_habitacionais'] == 0 else '')}
+- Unidades Não Habitacionais: {dados['num_unidades_nao_habitacionais']} {('(NÃO INFORMADO)' if dados['num_unidades_nao_habitacionais'] == 0 else '')}
+- Potencial Construtivo Adicional: {'SIM' if dados['utiliza_potencial_adicional'] else 'NÃO'}{(' (' + str(dados['tipo_potencial']) + ')') if dados['utiliza_potencial_adicional'] and dados['tipo_potencial'] and dados['tipo_potencial'] != 'Selecione...' else ''}
 - Vagas de Estacionamento: {dados['num_vagas']} {('(NÃO INFORMADO)' if dados['num_vagas'] == 0 else '')}
 
 4. AFASTAMENTOS (RECUOS):
-- Recuo Frontal: {dados['recuo_frontal']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_frontal'] == 0 else '')}
-- Recuo Lateral Direito: {dados['recuo_lateral_dir']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_lateral_dir'] == 0 else '')}
-- Recuo Lateral Esquerdo: {dados['recuo_lateral_esq']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_lateral_esq'] == 0 else '')}
+{('- Recuo Frontal Principal: ' + str(dados['recuo_frontal']) + ' m ' + ('(NÃO INFORMADO)' if dados['recuo_frontal'] == 0 else '') + chr(10) + '- Recuo Frontal Secundário: ' + str(dados['recuo_frontal_secundario']) + ' m ' + ('(NÃO INFORMADO)' if dados['recuo_frontal_secundario'] == 0 else '') + chr(10) + '- Recuo Lateral: ' + str(dados['recuo_lateral_dir']) + ' m ' + ('(NÃO INFORMADO)' if dados['recuo_lateral_dir'] == 0 else '')) if dados['lote_esquina'] else ('- Recuo Frontal: ' + str(dados['recuo_frontal']) + ' m ' + ('(NÃO INFORMADO)' if dados['recuo_frontal'] == 0 else '') + chr(10) + '- Recuo Lateral Direito: ' + str(dados['recuo_lateral_dir']) + ' m ' + ('(NÃO INFORMADO)' if dados['recuo_lateral_dir'] == 0 else '') + chr(10) + '- Recuo Lateral Esquerdo: ' + str(dados['recuo_lateral_esq']) + ' m ' + ('(NÃO INFORMADO)' if dados['recuo_lateral_esq'] == 0 else ''))}
 - Recuo de Fundos: {dados['recuo_fundos']:.2f} m {('(NÃO INFORMADO)' if dados['recuo_fundos'] == 0 else '')}
 
 5. ÍNDICES CALCULADOS:
@@ -1928,7 +2362,8 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
                     memorial=memorial,
                     zona_manual=dados['zona_manual'],
                     usar_zona_manual=dados['usar_zona_manual'],
-                    parametros_avancados=parametros_avancados
+                    parametros_avancados=parametros_avancados,
+                    dados_formulario=dados
                 )
                 
                 # Adicionar dados do formulário ao resultado
@@ -1940,12 +2375,16 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
             st.error(f"❌ Erro na análise: {str(e)}")
             logger.error(f"Erro completo: {e}", exc_info=True)
     
+    # Container para resultados com classe CSS responsiva
+    st.markdown('<div class="report-container">', unsafe_allow_html=True)
+    
     # Exibir resultados
     if st.session_state.analysis_result:
         resultado = st.session_state.analysis_result
         
         # Header com status aprimorado
         zona_display = resultado.get('zona_info', resultado['zona'])
+        
         st.header(f"📋 Relatório: Zona {zona_display}")
         
         # Mostrar informações de detecção se disponível
@@ -1963,11 +2402,49 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
                 elif "manual" in resultado['zona_detection_details'].lower():
                     st.success("✅ **Zona Manual:** Informada pelo usuário")
         
+        # Exibir validações robustas se disponível
+        if 'validacoes_robustas' in resultado and resultado['validacoes_robustas']:
+            with st.expander("🎯 Validações Diretas - Sistema Robusto", expanded=True):
+                st.info("📋 Análise automática baseada nos parâmetros oficiais da zona detectada")
+                
+                validacoes = resultado['validacoes_robustas']
+                for validacao in validacoes:
+                    if validacao['conforme']:
+                        st.success(f"✅ **{validacao['parametro']}**: CONFORME")
+                        st.write(f"   {validacao['observacao']}")
+                    else:
+                        st.error(f"❌ **{validacao['parametro']}**: NÃO CONFORME")
+                        st.write(f"   {validacao['observacao']}")
+                
+                # Resumo das validações
+                total_validacoes = len(validacoes)
+                validacoes_aprovadas = len([v for v in validacoes if v['conforme']])
+                validacoes_reprovadas = total_validacoes - validacoes_aprovadas
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total", total_validacoes)
+                with col2:
+                    st.metric("✅ Conformes", validacoes_aprovadas)
+                with col3:
+                    st.metric("❌ Não Conformes", validacoes_reprovadas)
+                
+                if validacoes_reprovadas == 0:
+                    st.balloons()
+                    st.success("🎉 **PARABÉNS!** Todos os parâmetros analisados estão em conformidade!")
+                else:
+                    st.warning(f"⚠️ **ATENÇÃO:** {validacoes_reprovadas} parâmetro(s) apresenta(m) não conformidade")
+        
+        # Status do projeto com containers estilizados
         parecer = resultado['resultado']
         if "não conformidade" in parecer.lower() or "reprovado" in parecer.lower():
+            st.markdown('<div class="resultado-reprovado">', unsafe_allow_html=True)
             st.error("❌ **Projeto REPROVADO**")
+            st.markdown('</div>', unsafe_allow_html=True)
         elif "conformidade" in parecer.lower() or "aprovado" in parecer.lower():
+            st.markdown('<div class="resultado-aprovado">', unsafe_allow_html=True)
             st.success("✅ **Projeto APROVADO**")
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.warning("⚠️ **Análise Pendente**")
         
@@ -1977,17 +2454,18 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         with tab1:
             st.markdown(resultado['resultado'])
             
-            # Downloads
+            # Downloads responsivos
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
                     "📥 Download TXT",
                     resultado['resultado'],
                     f"relatorio_{resultado['zona']}.txt",
-                    "text/plain"
+                    "text/plain",
+                    use_container_width=True
                 )
             with col2:
-                if st.button("🔄 Nova Análise"):
+                if st.button("🔄 Nova Análise", use_container_width=True):
                     st.session_state.analysis_result = None
                     st.rerun()
         
@@ -2013,6 +2491,9 @@ OBSERVAÇÃO: Dados não informados serão considerados como FALTANTES na análi
         if cidade and (CONFIG.PASTA_DADOS_RAIZ / cidade.lower()).exists():
             st.markdown("---")
             st.markdown(f"📊 {cidade.title()} • v{CONFIG.VERSAO_APP} • ✅ Ativo")
+    
+    # Fechar container responsivo
+    st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     load_dotenv()
