@@ -26,7 +26,9 @@
       "Bash(copy app.py app_backup_before_fix.py)",
       "Bash(tasklist)",
       "Bash(git reset:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(copy app.py app_backup_v6_antes_refatoracao.py)",
+      "Bash(tasklist:*)"
     ],
     "deny": [],
     "ask": []

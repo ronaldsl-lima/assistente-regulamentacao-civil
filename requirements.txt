@@ -1,4 +1,8 @@
 streamlit
+pandas
+requests
+selenium
+pyproj
 python-dotenv
 google-generativeai
 langchain<0.2.0
@@ -6,9 +10,7 @@ langchain-google-genai
 langchain-community
 chromadb<0.5.0
 pypdf
-pandas
 geopandas<0.15.0
 shapely>=2.0.0,<2.1.0
-requests
 sentence-transformers
 geopy
