@@ -1,8 +1,8 @@
 streamlit==1.28.1
 pandas
 requests==2.31.0
-geopandas==0.10.2
-pyproj==3.2.1
+geopandas
+pyproj
 python-dotenv==1.0.0
 folium==0.14.0
 geopy==2.4.0
