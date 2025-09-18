@@ -140,30 +140,44 @@ def _try_nominatim(address: str) -> dict:
 def _get_lot_geometry_by_coords(coords: dict) -> dict:
     """Usa coordenadas para identificar a geometria do lote na API do GeoCuritiba."""
     logger.info(f"A identificar lote nas coordenadas: {coords}")
-    
+
     url_identify = f"{URL_BASE_MAPA_CADASTRAL}/identify"
-    
-    tolerance = 10
-    map_extent = f"{coords['lon']-0.001},{coords['lat']-0.001},{coords['lon']+0.001},{coords['lat']+0.001}"
 
-    params = {
-        'f': 'json',
-        'geometry': f"{coords['lon']},{coords['lat']}",
-        'geometryType': 'esriGeometryPoint',
-        'sr': coords['wkid'],
-        'layers': 'visible:15',  # Foca a busca na camada de lotes (15)
-        'tolerance': tolerance,
-        'mapExtent': map_extent,
-        'imageDisplay': '100,100,96',
-        'returnGeometry': 'true'
-    }
+    # Tentar diferentes tolerâncias e sistemas de coordenadas
+    tolerances = [50, 100, 200]  # Aumentar tolerância
+    coordinate_systems = [4326, 31982]  # WGS84 e SIRGAS2000 UTM 22S
 
-    data = _make_api_request(url_identify, params)
-    if not data.get('results'):
-        raise ValueError("Nenhum lote encontrado nas coordenadas fornecidas.")
-    
-    logger.info("Geometria do lote identificada com sucesso.")
-    return data['results'][0].get('geometry')
+    for tolerance in tolerances:
+        for sr in coordinate_systems:
+            try:
+                map_extent = f"{coords['lon']-0.01},{coords['lat']-0.01},{coords['lon']+0.01},{coords['lat']+0.01}"
+
+                params = {
+                    'f': 'json',
+                    'geometry': f"{coords['lon']},{coords['lat']}",
+                    'geometryType': 'esriGeometryPoint',
+                    'sr': sr,
+                    'layers': 'all',  # Tentar todas as camadas
+                    'tolerance': tolerance,
+                    'mapExtent': map_extent,
+                    'imageDisplay': '400,400,96',
+                    'returnGeometry': 'true'
+                }
+
+                logger.info(f"Tentando com tolerância {tolerance} e SR {sr}")
+                data = _make_api_request(url_identify, params)
+
+                if data.get('results'):
+                    logger.info(f"Lote encontrado com tolerância {tolerance} e SR {sr}")
+                    return data['results'][0].get('geometry')
+
+            except Exception as e:
+                logger.warning(f"Erro com tolerância {tolerance} e SR {sr}: {e}")
+                continue
+
+    # Se não encontrou nada, tentar busca mais ampla
+    logger.warning("Lote não encontrado com parâmetros padrão, tentando busca ampla...")
+    return None
 
 
 def buscar_zoneamento_definitivo(endereco: str) -> dict:
@@ -174,18 +188,36 @@ def buscar_zoneamento_definitivo(endereco: str) -> dict:
         # 2. Usar as coordenadas para obter a geometria do lote
         geometria_lote = _get_lot_geometry_by_coords(coordenadas)
 
+        # Se não encontrou geometria específica, usar ponto das coordenadas
         if not geometria_lote:
-            return {'sucesso': False, 'erro': 'Não foi possível identificar o lote no mapa.'}
+            logger.warning("Usando coordenadas pontuais para consulta de zoneamento")
+            geometria_lote = {
+                "x": coordenadas['lon'],
+                "y": coordenadas['lat'],
+                "spatialReference": {"wkid": 4326}
+            }
         
         zonas_encontradas = []
 
         # 3. Iterar sobre as camadas configuradas para encontrar sobreposições
         for layer_info in sorted(LAYERS_CONFIG, key=lambda x: x['prioridade']):
             url_camada = f"{URL_BASE_MAPA_CADASTRAL}/{layer_info['layer_id']}/query"
+            # Determinar tipo de geometria baseado na estrutura
+            if 'x' in geometria_lote and 'y' in geometria_lote:
+                # É um ponto
+                geometry_type = 'esriGeometryPoint'
+                spatial_rel = 'esriSpatialRelIntersects'
+                in_sr = '4326'
+            else:
+                # É um polígono
+                geometry_type = 'esriGeometryPolygon'
+                spatial_rel = 'esriSpatialRelIntersects'
+                in_sr = '31982'
+
             params_camada = {
                 'f': 'json', 'geometry': json.dumps(geometria_lote),
-                'geometryType': 'esriGeometryPolygon', 'spatialRel': 'esriSpatialRelIntersects',
-                'inSR': '31982', 'outFields': '*', 'returnGeometry': 'false'
+                'geometryType': geometry_type, 'spatialRel': spatial_rel,
+                'inSR': in_sr, 'outFields': '*', 'returnGeometry': 'false'
             }
             camada_data = _make_api_request(url_camada, params_camada)
 
