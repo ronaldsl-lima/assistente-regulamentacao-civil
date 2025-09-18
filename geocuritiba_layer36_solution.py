@@ -93,32 +93,32 @@ def _geocode_address(address: str) -> dict:
         return _try_nominatim(address)
 
 def _try_new_geocoding_api(address: str) -> dict:
-    """Tenta geocodificar usando a nova API."""
+    """Tenta geocodificar usando a API PositionStack."""
     try:
         api_key = st.secrets["secrets"]["GEOCODING_API_KEY"]
     except:
         # Fallback para desenvolvimento local
-        api_key = "c9d0794f51b5b025d332555760a9d3a5"
+        api_key = "5d74e43398ad3ab452ad6472deb2d155"
 
-    url = "https://api.opencagedata.com/geocode/v1/json"
+    url = "http://api.positionstack.com/v1/forward"
     params = {
-        'q': f"{address}, Curitiba, Brazil",
-        'key': api_key,
+        'query': f"{address}, Curitiba, Brazil",
+        'access_key': api_key,  # PositionStack usa 'access_key' como parâmetro
         'limit': 1,
-        'countrycode': 'br'
+        'country': 'BR'
     }
 
+    logger.info(f"Testando PositionStack com parâmetros: {params}")
     data = _make_api_request(url, params)
 
-    if not data.get('results'):
+    if not data.get('data'):
         raise ValueError("Não foi possível encontrar coordenadas para este endereço.")
 
-    result = data['results'][0]
-    geometry = result['geometry']
+    result = data['data'][0]
 
     return {
-        'lat': float(geometry['lat']),
-        'lon': float(geometry['lng']),
+        'lat': float(result['latitude']),
+        'lon': float(result['longitude']),
         'wkid': 4326  # WGS 84 (padrão de GPS)
     }
 
