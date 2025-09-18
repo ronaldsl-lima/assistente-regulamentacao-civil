@@ -184,44 +184,46 @@ def buscar_zoneamento_definitivo(endereco: str) -> dict:
     try:
         # 1. Geocodificar o endereço para obter coordenadas
         coordenadas = _geocode_address(endereco)
+        logger.info(f"Coordenadas obtidas: {coordenadas}")
 
-        # 2. Usar as coordenadas para obter a geometria do lote
-        geometria_lote = _get_lot_geometry_by_coords(coordenadas)
+        # 2. Usar consulta direta por coordenadas (mais robusta)
+        return _consultar_zoneamento_por_coordenadas(coordenadas, endereco)
 
-        # Se não encontrou geometria específica, usar ponto das coordenadas
-        if not geometria_lote:
-            logger.warning("Usando coordenadas pontuais para consulta de zoneamento")
-            geometria_lote = {
-                "x": coordenadas['lon'],
-                "y": coordenadas['lat'],
-                "spatialReference": {"wkid": 4326}
-            }
-        
-        zonas_encontradas = []
+    except (ConnectionError, ValueError) as e:
+        return {'sucesso': False, 'erro': str(e)}
+    except Exception as e:
+        logger.error(f"Um erro inesperado ocorreu: {e}", exc_info=True)
+        return {'sucesso': False, 'erro': 'Um erro inesperado ocorreu durante a análise.'}
 
-        # 3. Iterar sobre as camadas configuradas para encontrar sobreposições
-        for layer_info in sorted(LAYERS_CONFIG, key=lambda x: x['prioridade']):
+def _consultar_zoneamento_por_coordenadas(coordenadas: dict, endereco: str) -> dict:
+    """Consulta zoneamento usando coordenadas diretamente, sem dependência de geometria do lote."""
+
+    # Geometria pontual simples
+    ponto_geometria = f"{coordenadas['lon']},{coordenadas['lat']}"
+
+    zonas_encontradas = []
+
+    # 3. Iterar sobre as camadas configuradas para encontrar sobreposições
+    for layer_info in sorted(LAYERS_CONFIG, key=lambda x: x['prioridade']):
+        try:
             url_camada = f"{URL_BASE_MAPA_CADASTRAL}/{layer_info['layer_id']}/query"
-            # Determinar tipo de geometria baseado na estrutura
-            if 'x' in geometria_lote and 'y' in geometria_lote:
-                # É um ponto
-                geometry_type = 'esriGeometryPoint'
-                spatial_rel = 'esriSpatialRelIntersects'
-                in_sr = '4326'
-            else:
-                # É um polígono
-                geometry_type = 'esriGeometryPolygon'
-                spatial_rel = 'esriSpatialRelIntersects'
-                in_sr = '31982'
 
             params_camada = {
-                'f': 'json', 'geometry': json.dumps(geometria_lote),
-                'geometryType': geometry_type, 'spatialRel': spatial_rel,
-                'inSR': in_sr, 'outFields': '*', 'returnGeometry': 'false'
+                'f': 'json',
+                'geometry': ponto_geometria,
+                'geometryType': 'esriGeometryPoint',
+                'spatialRel': 'esriSpatialRelIntersects',
+                'inSR': '4326',
+                'outSR': '4326',
+                'outFields': '*',
+                'returnGeometry': 'false'
             }
+
+            logger.info(f"Consultando camada {layer_info['nome']} (ID: {layer_info['layer_id']})")
             camada_data = _make_api_request(url_camada, params_camada)
 
             if camada_data.get('features'):
+                logger.info(f"Encontradas {len(camada_data['features'])} features na camada {layer_info['nome']}")
                 for feature in camada_data['features']:
                     attributes = feature['attributes']
                     parametros = {}
@@ -252,26 +254,26 @@ def buscar_zoneamento_definitivo(endereco: str) -> dict:
                             "prioridade": layer_info["prioridade"],
                             "parametros": parametros
                         })
+            else:
+                logger.info(f"Nenhuma feature encontrada na camada {layer_info['nome']}")
 
-        if not zonas_encontradas:
-            return {'sucesso': False, 'erro': 'Nenhum zoneamento foi encontrado para este lote.'}
+        except Exception as e:
+            logger.warning(f"Erro ao consultar camada {layer_info['nome']}: {e}")
+            continue
 
-        # 4. Determinar a zona principal e preparar o resultado
-        zona_principal = min(zonas_encontradas, key=lambda x: x['prioridade'])
-        info_zonas_incidentes = [f"{z['parametros'].get('sigla_zona', z['nome_camada'])} ({z['nome_camada']})" for z in zonas_encontradas]
+    if not zonas_encontradas:
+        return {'sucesso': False, 'erro': 'Nenhum zoneamento foi encontrado para este endereço. Verifique se o endereço está em Curitiba.'}
 
-        return {
-            'sucesso': True, 'erro': None,
-            'parametros': zona_principal['parametros'],
-            'zona_principal': zona_principal['parametros'].get('sigla_zona', zona_principal['nome_camada']),
-            'fonte': f"Camada Prioritária: {zona_principal['nome_camada']}",
-            'todas_zonas_incidentes': info_zonas_incidentes,
-            'coordenadas': f"{coordenadas['lat']:.6f}, {coordenadas['lon']:.6f}"
-        }
+    # 4. Determinar a zona principal e preparar o resultado
+    zona_principal = min(zonas_encontradas, key=lambda x: x['prioridade'])
+    info_zonas_incidentes = [f"{z['parametros'].get('sigla_zona', z['nome_camada'])} ({z['nome_camada']})" for z in zonas_encontradas]
 
-    except (ConnectionError, ValueError) as e:
-        return {'sucesso': False, 'erro': str(e)}
-    except Exception as e:
-        logger.error(f"Um erro inesperado ocorreu: {e}", exc_info=True)
-        return {'sucesso': False, 'erro': 'Um erro inesperado ocorreu durante a análise.'}
+    return {
+        'sucesso': True, 'erro': None,
+        'parametros': zona_principal['parametros'],
+        'zona_principal': zona_principal['parametros'].get('sigla_zona', zona_principal['nome_camada']),
+        'fonte': f"Camada Prioritária: {zona_principal['nome_camada']}",
+        'todas_zonas_incidentes': info_zonas_incidentes,
+        'coordenadas': f"{coordenadas['lat']:.6f}, {coordenadas['lon']:.6f}"
+    }
 
