@@ -28,7 +28,13 @@
       "Bash(git reset:*)",
       "Bash(git checkout:*)",
       "Bash(copy app.py app_backup_v6_antes_refatoracao.py)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "WebFetch(domain:192.168.18.27)",
+      "Bash(robocopy:*)",
+      "Bash(xcopy:*)",
+      "Bash(for:*)",
+      "Bash(do [ -f \"$file\" ])",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

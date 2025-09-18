@@ -6,10 +6,7 @@ import re
 import math
 
 # SOLUÇÃO DEFINITIVA: Importa a função que consulta a API do GeoCuritiba
-# from geocuritiba_layer36_solution import buscar_zoneamento_definitivo
-
-# NOVA SOLUÇÃO COM SELENIUM: Automação real do navegador
-from geocuritiba_selenium_simples import buscar_zoneamento_selenium as buscar_zoneamento_definitivo
+from geocuritiba_layer36_solution import buscar_zoneamento_definitivo
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
