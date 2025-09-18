@@ -2,6 +2,7 @@ import requests
 import json
 import re
 import logging
+import streamlit as st
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -81,18 +82,58 @@ def _make_api_request(url: str, params: dict, timeout: int = 25) -> dict:
         raise ConnectionError(f"Erro na requisição à API: {req_err}")
 
 def _geocode_address(address: str) -> dict:
-    """Converte um endereço em coordenadas usando a API Nominatim (OpenStreetMap)."""
+    """Converte um endereço em coordenadas usando a nova API de geocodificação."""
     logger.info(f"A geocodificar o endereço: {address}")
+
+    # Tentar primeiro com a nova API
+    try:
+        return _try_new_geocoding_api(address)
+    except Exception as e:
+        logger.warning(f"Erro na nova API: {e}. Tentando Nominatim...")
+        return _try_nominatim(address)
+
+def _try_new_geocoding_api(address: str) -> dict:
+    """Tenta geocodificar usando a nova API."""
+    try:
+        api_key = st.secrets["secrets"]["GEOCODING_API_KEY"]
+    except:
+        # Fallback para desenvolvimento local
+        api_key = "c9d0794f51b5b025d332555760a9d3a5"
+
+    url = "https://api.opencagedata.com/geocode/v1/json"
+    params = {
+        'q': f"{address}, Curitiba, Brazil",
+        'key': api_key,
+        'limit': 1,
+        'countrycode': 'br'
+    }
+
+    data = _make_api_request(url, params)
+
+    if not data.get('results'):
+        raise ValueError("Não foi possível encontrar coordenadas para este endereço.")
+
+    result = data['results'][0]
+    geometry = result['geometry']
+
+    return {
+        'lat': float(geometry['lat']),
+        'lon': float(geometry['lng']),
+        'wkid': 4326  # WGS 84 (padrão de GPS)
+    }
+
+def _try_nominatim(address: str) -> dict:
+    """Fallback: usa Nominatim (OpenStreetMap) como backup."""
     url = "https://nominatim.openstreetmap.org/search"
     params = {'q': f"{address}, Curitiba, Brazil", 'format': 'json', 'limit': 1}
     data = _make_api_request(url, params)
     if not data:
         raise ValueError("Não foi possível encontrar coordenadas para este endereço.")
-    
+
     return {
         'lat': float(data[0]['lat']),
         'lon': float(data[0]['lon']),
-        'wkid': 4326 # WGS 84 (padrão de GPS)
+        'wkid': 4326  # WGS 84 (padrão de GPS)
     }
 
 def _get_lot_geometry_by_coords(coords: dict) -> dict:
