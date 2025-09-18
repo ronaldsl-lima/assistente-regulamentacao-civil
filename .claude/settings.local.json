@@ -34,7 +34,8 @@
       "Bash(xcopy:*)",
       "Bash(for:*)",
       "Bash(do [ -f \"$file\" ])",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(set POSITIONSTACK_API_KEY=a98b64ea2cb1db5eca93709f93c5fa85)"
     ],
     "deny": [],
     "ask": []

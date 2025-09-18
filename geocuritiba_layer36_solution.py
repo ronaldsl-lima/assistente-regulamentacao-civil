@@ -2,7 +2,7 @@ import requests
 import json
 import re
 import logging
-import streamlit as st
+import os
 
 # Configuração do logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -94,9 +94,10 @@ def _geocode_address(address: str) -> dict:
 
 def _try_new_geocoding_api(address: str) -> dict:
     """Tenta geocodificar usando a API PositionStack."""
-    try:
-        api_key = st.secrets["secrets"]["GEOCODING_API_KEY"]
-    except:
+    # Lê a chave de API das variáveis de ambiente do sistema
+    api_key = os.getenv('POSITIONSTACK_API_KEY')
+
+    if not api_key:
         # Fallback para desenvolvimento local
         api_key = "5d74e43398ad3ab452ad6472deb2d155"
 
