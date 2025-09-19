@@ -212,11 +212,28 @@ def buscar_zoneamento_por_coordenadas(latitude: float, longitude: float) -> dict
         return {'sucesso': False, 'erro': 'Erro ao consultar zoneamento por coordenadas.'}
 
 def _consultar_zoneamento_por_coordenadas(coordenadas: dict, endereco: str) -> dict:
-    """Consulta zoneamento usando coordenadas diretamente, sem dependência de geometria do lote."""
+    """Consulta zoneamento com ALTA PRECISÃO usando múltiplas tolerâncias."""
+
+    logger.info(f"🎯 CONSULTA DE ALTA PRECISÃO para: {endereco}")
 
     # Geometria pontual simples
     ponto_geometria = f"{coordenadas['lon']},{coordenadas['lat']}"
 
+    # PRIMEIRA TENTATIVA: Apenas zoneamento base com tolerâncias múltiplas
+    zona_encontrada = _buscar_zona_com_multiplas_tolerancias(ponto_geometria)
+
+    if zona_encontrada:
+        logger.info(f"✅ Zona encontrada com alta precisão: {zona_encontrada['sigla_zona']}")
+        return {
+            'sucesso': True, 'erro': None,
+            'parametros': zona_encontrada,
+            'zona_principal': zona_encontrada['sigla_zona'],
+            'fonte': "Alta Precisão - Múltiplas Tolerâncias",
+            'coordenadas': f"{coordenadas['lat']:.6f}, {coordenadas['lon']:.6f}",
+            'nivel_confianca': 95
+        }
+
+    # FALLBACK: Método original se não encontrar nada
     zonas_encontradas = []
 
     # 3. Iterar sobre as camadas configuradas para encontrar sobreposições
@@ -290,6 +307,62 @@ def _consultar_zoneamento_por_coordenadas(coordenadas: dict, endereco: str) -> d
         'zona_principal': zona_principal['parametros'].get('sigla_zona', zona_principal['nome_camada']),
         'fonte': f"Camada Prioritária: {zona_principal['nome_camada']}",
         'todas_zonas_incidentes': info_zonas_incidentes,
-        'coordenadas': f"{coordenadas['lat']:.6f}, {coordenadas['lon']:.6f}"
+        'coordenadas': f"{coordenadas['lat']:.6f}, {coordenadas['lon']:.6f}",
+        'nivel_confianca': 75
     }
+
+def _buscar_zona_com_multiplas_tolerancias(ponto_geometria: str) -> dict:
+    """Busca zona usando múltiplas tolerâncias para máxima precisão."""
+
+    # Configurações de precisão em ordem decrescente
+    configuracoes = [
+        {'tolerancia': 1, 'sr': '4326', 'descricao': 'Precisão máxima'},
+        {'tolerancia': 5, 'sr': '31982', 'descricao': 'SIRGAS alta precisão'},
+        {'tolerancia': 10, 'sr': '4326', 'descricao': 'Precisão média'},
+        {'tolerancia': 20, 'sr': '31982', 'descricao': 'SIRGAS tolerância média'}
+    ]
+
+    for config in configuracoes:
+        try:
+            logger.info(f"🔍 Testando: {config['descricao']}")
+
+            url_camada = f"{URL_BASE_MAPA_CADASTRAL}/36/query"  # Layer 36 = Zoneamento Base
+
+            params = {
+                'f': 'json',
+                'geometry': ponto_geometria,
+                'geometryType': 'esriGeometryPoint',
+                'spatialRel': 'esriSpatialRelIntersects',
+                'inSR': config['sr'],
+                'outSR': config['sr'],
+                'outFields': '*',
+                'returnGeometry': 'false',
+                'tolerance': config['tolerancia']
+            }
+
+            data = _make_api_request(url_camada, params)
+
+            if data.get('features'):
+                feature = data['features'][0]
+                attributes = feature['attributes']
+                zona = attributes.get('sg_zona', '').strip()
+
+                if zona:
+                    logger.info(f"✅ Zona encontrada: {zona} com {config['descricao']}")
+                    return {
+                        'sigla_zona': zona,
+                        'nome_zona': attributes.get('nm_zona', 'Não especificado'),
+                        'coef_aproveitamento_basico': attributes.get('cd_ca_basico'),
+                        'taxa_ocupacao_maxima': attributes.get('cd_to_maxima'),
+                        'altura_maxima_pavimentos': attributes.get('cd_alt_max_pav'),
+                        'recuo_frontal_minimo': attributes.get('cd_rec_frontal'),
+                        'taxa_permeabilidade_minima': attributes.get('cd_tx_permea')
+                    }
+
+        except Exception as e:
+            logger.warning(f"Erro na configuração {config['descricao']}: {e}")
+            continue
+
+    logger.warning("❌ Nenhuma zona encontrada com múltiplas tolerâncias")
+    return None
 

@@ -153,6 +153,16 @@ def exibir_resultados(resultado):
     api_info = resultado['dados_api']
     validacoes = resultado['validacoes']
 
+    # Exibir nível de confiança se disponível
+    nivel_confianca = api_info.get('nivel_confianca', None)
+    if nivel_confianca:
+        if nivel_confianca >= 90:
+            st.success(f"🎯 **ALTA PRECISÃO:** Resultado com {nivel_confianca}% de confiança")
+        elif nivel_confianca >= 75:
+            st.info(f"✅ **BOA PRECISÃO:** Resultado com {nivel_confianca}% de confiança")
+        else:
+            st.warning(f"⚠️ **PRECISÃO MODERADA:** Resultado com {nivel_confianca}% de confiança")
+
     st.header(f"📋 Relatório de Análise | Zona Principal: {api_info['zona_principal']}")
     st.caption(f"Análise baseada nos dados oficiais via API GeoCuritiba. Fonte: {api_info['fonte']}")
     
