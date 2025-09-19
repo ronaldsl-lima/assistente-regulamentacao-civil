@@ -146,7 +146,7 @@ class AnalysisEngine:
 # --- Funções da Interface do Utilizador (UI) ---
 
 def configurar_pagina():
-    st.set_page_config(page_title="Assistente Regulatório v8.2", page_icon="🏗️", layout="wide")
+    st.set_page_config(page_title="Assistente Regulatório v8.3 - Alta Precisão", page_icon="🎯", layout="wide")
 
 
 def exibir_resultados(resultado):

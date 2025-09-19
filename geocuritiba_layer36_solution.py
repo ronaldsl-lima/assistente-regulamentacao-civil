@@ -214,12 +214,13 @@ def buscar_zoneamento_por_coordenadas(latitude: float, longitude: float) -> dict
 def _consultar_zoneamento_por_coordenadas(coordenadas: dict, endereco: str) -> dict:
     """Consulta zoneamento com ALTA PRECISÃO usando múltiplas tolerâncias."""
 
-    logger.info(f"🎯 CONSULTA DE ALTA PRECISÃO para: {endereco}")
+    logger.info(f"🎯 CONSULTA DE ALTA PRECISÃO V8.3 para: {endereco}")
 
     # Geometria pontual simples
     ponto_geometria = f"{coordenadas['lon']},{coordenadas['lat']}"
 
     # PRIMEIRA TENTATIVA: Apenas zoneamento base com tolerâncias múltiplas
+    logger.info("🔍 Iniciando busca com múltiplas tolerâncias...")
     zona_encontrada = _buscar_zona_com_multiplas_tolerancias(ponto_geometria)
 
     if zona_encontrada:
