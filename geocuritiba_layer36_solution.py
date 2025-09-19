@@ -195,6 +195,22 @@ def buscar_zoneamento_definitivo(endereco: str) -> dict:
         logger.error(f"Um erro inesperado ocorreu: {e}", exc_info=True)
         return {'sucesso': False, 'erro': 'Um erro inesperado ocorreu durante a análise.'}
 
+def buscar_zoneamento_por_coordenadas(latitude: float, longitude: float) -> dict:
+    """Consulta zoneamento usando coordenadas diretas."""
+    try:
+        coordenadas = {
+            'lat': latitude,
+            'lon': longitude,
+            'wkid': 4326
+        }
+        logger.info(f"Consultando por coordenadas diretas: {coordenadas}")
+
+        return _consultar_zoneamento_por_coordenadas(coordenadas, f"Coordenadas: {latitude}, {longitude}")
+
+    except Exception as e:
+        logger.error(f"Erro na consulta por coordenadas: {e}", exc_info=True)
+        return {'sucesso': False, 'erro': 'Erro ao consultar zoneamento por coordenadas.'}
+
 def _consultar_zoneamento_por_coordenadas(coordenadas: dict, endereco: str) -> dict:
     """Consulta zoneamento usando coordenadas diretamente, sem dependência de geometria do lote."""
 

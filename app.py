@@ -5,8 +5,8 @@ import logging
 import re
 import math
 
-# SOLUÇÃO DEFINITIVA: Importa a função que consulta a API do GeoCuritiba
-from geocuritiba_layer36_solution import buscar_zoneamento_definitivo
+# SOLUÇÃO DEFINITIVA: Importa as funções que consultam a API do GeoCuritiba
+from geocuritiba_layer36_solution import buscar_zoneamento_definitivo, buscar_zoneamento_por_coordenadas
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,7 +36,7 @@ class ProjectDataCalculator:
 
 class AnalysisEngine:
     """Motor de Análise v8.0 - com validações críticas e regras de negócio."""
-    
+
     def run_analysis(self, form_data: dict) -> dict:
         """Executa a análise completa usando a API do GeoCuritiba."""
         endereco = form_data.get('endereco')
@@ -49,10 +49,35 @@ class AnalysisEngine:
         if not api_data or not api_data.get('sucesso'):
             erro = api_data.get('erro', 'Não foi possível obter dados.')
             raise ConnectionError(f"Falha na consulta à API do GeoCuritiba: {erro}")
-        
+
         project_params = ProjectDataCalculator.calculate_project_parameters(form_data)
         validations = self._compare_parameters(form_data, project_params, api_data)
-        
+
+        return {
+            'sucesso': True,
+            'dados_api': api_data,
+            'dados_projeto': {**form_data, **project_params},
+            'validacoes': validations,
+        }
+
+    def run_analysis_by_coordinates(self, form_data: dict) -> dict:
+        """Executa a análise usando coordenadas diretas."""
+        latitude = form_data.get('latitude')
+        longitude = form_data.get('longitude')
+
+        if not latitude or not longitude:
+            raise ValueError("Latitude e Longitude são obrigatórias para a análise.")
+
+        with st.spinner(f"Consultando dados oficiais para as coordenadas {latitude}, {longitude}..."):
+            api_data = buscar_zoneamento_por_coordenadas(latitude, longitude)
+
+        if not api_data or not api_data.get('sucesso'):
+            erro = api_data.get('erro', 'Não foi possível obter dados.')
+            raise ConnectionError(f"Falha na consulta à API do GeoCuritiba: {erro}")
+
+        project_params = ProjectDataCalculator.calculate_project_parameters(form_data)
+        validations = self._compare_parameters(form_data, project_params, api_data)
+
         return {
             'sucesso': True,
             'dados_api': api_data,
@@ -123,52 +148,6 @@ class AnalysisEngine:
 def configurar_pagina():
     st.set_page_config(page_title="Assistente Regulatório v8.2", page_icon="🏗️", layout="wide")
 
-def criar_formulario_completo(dados_existentes=None):
-    if dados_existentes is None: dados_existentes = {}
-    
-    st.sidebar.title("🏗️ Assistente Regulatório")
-    st.sidebar.header("1. Identificação do Imóvel")
-
-    endereco = st.sidebar.text_input("Endereço Completo: *", value=dados_existentes.get('endereco', ''), help="Obrigatório. A precisão da análise depende de um endereço completo e correto (Rua, Número, Bairro, Cidade).")
-    indicacao_fiscal = st.sidebar.text_input("Indicação Fiscal (opcional):", value=dados_existentes.get('indicacao_fiscal', ''), help="Se souber, ajuda a confirmar a localização, mas o endereço é o principal.")
-
-    with st.sidebar.expander("2. Dimensionais do Projeto", expanded=True):
-        st.info("Aqui você coloca as medidas principais do seu projeto.")
-        area_terreno = st.number_input("Área Total do Terreno (m²): *", min_value=0.1, value=dados_existentes.get('area_terreno', 200.0), format="%.2f", help="A área total do seu terreno, conforme a matrícula do imóvel.")
-        area_projecao = st.number_input("Área de Projeção/Implantação (m²):", value=dados_existentes.get('area_projecao', 130.0), format="%.2f", help="Imagine uma 'sombra' da sua construção no terreno. Esta é a área que essa sombra ocupa.")
-        area_computavel = st.number_input("Área Construída Computável (m²):", value=dados_existentes.get('area_computavel', 175.0), format="%.2f", help="A soma das áreas que contam para o Coeficiente de Aproveitamento.")
-        area_nao_computavel = st.number_input("Área Construída Não Computável (m²):", value=dados_existentes.get('area_nao_computavel', 0.0), format="%.2f", help="A soma das áreas que não contam (garagens, sacadas abertas, etc.).")
-        area_permeavel = st.number_input("Área Permeável (m²):", value=dados_existentes.get('area_permeavel', 10.0), format="%.2f", help="A parte do terreno sem construção, que permite a absorção da água da chuva.")
-        num_pavimentos = st.number_input("Número de Pavimentos:", min_value=1, step=1, value=dados_existentes.get('num_pavimentos', 2), help="A quantidade de andares da sua construção.")
-        altura_total = st.number_input("Altura Total (metros):", value=dados_existentes.get('altura_total', 7.0), format="%.2f", help="A altura total da sua construção, do nível médio do terreno ao ponto mais alto.")
-
-    with st.sidebar.expander("3. Afastamentos e Recuos (m)"):
-        st.info("Distâncias mínimas da sua construção até as divisas do terreno.")
-        lote_esquina = st.checkbox("Lote de Esquina", value=dados_existentes.get('lote_esquina', False), help="O seu terreno fica na esquina de duas ruas?")
-        recuo_frontal = st.number_input("Recuo Frontal:", value=dados_existentes.get('recuo_frontal', 5.0), format="%.2f", help="Distância da construção até a calçada.")
-        afastamento_ld = st.number_input("Afastamento Lateral Direito:", value=dados_existentes.get('afastamento_ld', 1.5), format="%.2f", help="Distância até a divisa lateral direita.")
-        afastamento_le = st.number_input("Afastamento Lateral Esquerdo:", value=dados_existentes.get('afastamento_le', 1.5), format="%.2f", help="Distância até a divisa lateral esquerda.")
-        afastamento_fundos = st.number_input("Afastamento de Fundos:", value=dados_existentes.get('afastamento_fundos', 3.0), format="%.2f", help="Distância até a divisa dos fundos.")
-
-    with st.sidebar.expander("4. Uso e Atividade"):
-        categoria_uso = st.selectbox("Categoria de Uso:", ["Residencial", "Comercial", "Serviços", "Misto", "Industrial", "Institucional"])
-        unidades_habitacionais = st.number_input("Nº de Unidades Habitacionais:", min_value=0, step=1, value=dados_existentes.get('unidades_habitacionais', 1))
-        unidades_nao_habitacionais = st.number_input("Nº de Unidades Comerciais/Serviços:", min_value=0, step=1, value=dados_existentes.get('unidades_nao_habitacionais', 0))
-
-    with st.sidebar.expander("5. Vagas de Estacionamento"):
-        vagas_previstas = st.number_input("Total de Vagas Previstas:", min_value=0, step=1, value=dados_existentes.get('vagas_previstas', 1))
-        vagas_pcd = st.number_input("Vagas para PCD:", min_value=0, step=1, value=dados_existentes.get('vagas_pcd', 0), help="A lei exige um mínimo de 2%.")
-        vagas_idosos = st.number_input("Vagas para Idosos:", min_value=0, step=1, value=dados_existentes.get('vagas_idosos', 0), help="A lei exige um mínimo de 5%.")
-
-    with st.sidebar.expander("6. Características Especiais do Lote"):
-        declividade = st.slider("Declividade (%)", 0, 100, value=dados_existentes.get('declividade', 5), help="A inclinação do terreno pode influenciar nas regras de altura.")
-
-    st.sidebar.markdown("---")
-    pode_analisar = bool(endereco and area_terreno)
-    analisar = st.sidebar.button("🔍 Analisar Conformidade", type="primary", use_container_width=True, disabled=not pode_analisar)
-    if not pode_analisar: st.sidebar.warning("Preencha o Endereço Completo e a Área do Terreno.")
-
-    return {k:v for k,v in locals().items() if k not in ['dados_existentes']}
 
 def exibir_resultados(resultado):
     api_info = resultado['dados_api']
@@ -200,32 +179,220 @@ def exibir_resultados(resultado):
             "Zonas Incidentes no Lote": api_info.get('todas_zonas_incidentes', []),
         })
 
+def criar_formulario_endereco():
+    """Cria formulário específico para consulta por endereço."""
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        endereco = st.text_input(
+            "📍 Endereço Completo",
+            placeholder="Ex: Rua XV de Novembro, 1000, Centro, Curitiba",
+            help="Digite o endereço completo incluindo número, rua e bairro"
+        )
+
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Espaçamento
+        analisar = st.button("🔍 Consultar Zoneamento", type="primary", use_container_width=True)
+
+    # Formulário de projeto (opcional)
+    with st.expander("🏗️ Dados do Projeto (Opcional)", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            area_terreno = st.number_input("Área do Terreno (m²)", min_value=0.0, value=0.0)
+            area_projecao = st.number_input("Área de Projeção (m²)", min_value=0.0, value=0.0)
+        with col2:
+            area_computavel = st.number_input("Área Computável (m²)", min_value=0.0, value=0.0)
+            area_permeavel = st.number_input("Área Permeável (m²)", min_value=0.0, value=0.0)
+
+        num_pavimentos = st.number_input("Número de Pavimentos", min_value=0, value=0)
+        recuo_frontal = st.number_input("Recuo Frontal (m)", min_value=0.0, value=0.0)
+
+    return {
+        'endereco': endereco.strip() if endereco else '',
+        'area_terreno': area_terreno,
+        'area_projecao': area_projecao,
+        'area_computavel': area_computavel,
+        'area_permeavel': area_permeavel,
+        'num_pavimentos': num_pavimentos,
+        'recuo_frontal': recuo_frontal,
+        'analisar': analisar and bool(endereco.strip())
+    }
+
+def criar_formulario_coordenadas():
+    """Cria formulário específico para consulta por coordenadas."""
+    st.info("💡 **Dica:** Use coordenadas no formato decimal (ex: -25.4284, -49.2733)")
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    with col1:
+        latitude = st.number_input(
+            "🌐 Latitude",
+            value=-25.4284,
+            format="%.6f",
+            help="Latitude em graus decimais (negativo para Sul)"
+        )
+
+    with col2:
+        longitude = st.number_input(
+            "🌐 Longitude",
+            value=-49.2733,
+            format="%.6f",
+            help="Longitude em graus decimais (negativo para Oeste)"
+        )
+
+    with col3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        analisar = st.button("🔍 Consultar por Coordenadas", type="primary", use_container_width=True)
+
+    # Validação básica de coordenadas para Curitiba
+    coords_validas = (-26.0 <= latitude <= -25.0) and (-50.0 <= longitude <= -49.0)
+
+    if not coords_validas and (latitude != -25.4284 or longitude != -49.2733):
+        st.warning("⚠️ Coordenadas fora da região de Curitiba. Verifique os valores inseridos.")
+
+    # Formulário de projeto (opcional)
+    with st.expander("🏗️ Dados do Projeto (Opcional)", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            area_terreno = st.number_input("Área do Terreno (m²)", min_value=0.0, value=0.0, key="coord_area_terreno")
+            area_projecao = st.number_input("Área de Projeção (m²)", min_value=0.0, value=0.0, key="coord_area_projecao")
+        with col2:
+            area_computavel = st.number_input("Área Computável (m²)", min_value=0.0, value=0.0, key="coord_area_computavel")
+            area_permeavel = st.number_input("Área Permeável (m²)", min_value=0.0, value=0.0, key="coord_area_permeavel")
+
+        num_pavimentos = st.number_input("Número de Pavimentos", min_value=0, value=0, key="coord_num_pavimentos")
+        recuo_frontal = st.number_input("Recuo Frontal (m)", min_value=0.0, value=0.0, key="coord_recuo_frontal")
+
+    return {
+        'latitude': latitude,
+        'longitude': longitude,
+        'area_terreno': area_terreno,
+        'area_projecao': area_projecao,
+        'area_computavel': area_computavel,
+        'area_permeavel': area_permeavel,
+        'num_pavimentos': num_pavimentos,
+        'recuo_frontal': recuo_frontal,
+        'analisar': analisar and coords_validas
+    }
+
+def salvar_no_historico(result, tipo, endereco=None, coordenadas=None):
+    """Salva consulta no histórico."""
+    if 'historico_consultas' not in st.session_state:
+        st.session_state.historico_consultas = []
+
+    api_data = result.get('dados_api', {})
+    consulta = {
+        'timestamp': datetime.now().strftime("%d/%m/%Y %H:%M"),
+        'tipo': tipo,
+        'zona_principal': api_data.get('zona_principal', 'N/A'),
+        'fonte': api_data.get('fonte', 'N/A'),
+        'coordenadas_encontradas': api_data.get('coordenadas', 'N/A')
+    }
+
+    if endereco:
+        consulta['endereco'] = endereco
+    if coordenadas:
+        consulta['coordenadas'] = coordenadas
+
+    st.session_state.historico_consultas.append(consulta)
+
+    # Manter apenas as últimas 50 consultas
+    if len(st.session_state.historico_consultas) > 50:
+        st.session_state.historico_consultas = st.session_state.historico_consultas[-50:]
+
+def exibir_historico():
+    """Exibe histórico de consultas."""
+    if 'historico_consultas' not in st.session_state:
+        st.session_state.historico_consultas = []
+
+    if not st.session_state.historico_consultas:
+        st.info("📝 Nenhuma consulta realizada ainda. Faça sua primeira consulta nas abas anteriores!")
+        return
+
+    st.subheader("🕐 Últimas Consultas")
+
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🗑️ Limpar Histórico"):
+            st.session_state.historico_consultas = []
+            st.rerun()
+
+    for i, consulta in enumerate(reversed(st.session_state.historico_consultas[-10:])):  # Últimas 10
+        with st.expander(f"Consulta {len(st.session_state.historico_consultas) - i}: {consulta.get('endereco', consulta.get('coordenadas', 'N/A'))}"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Tipo:**", "📍 Endereço" if consulta.get('tipo') == 'endereco' else "🗺️ Coordenadas")
+                st.write("**Zona Principal:**", consulta.get('zona_principal', 'N/A'))
+                st.write("**Fonte:**", consulta.get('fonte', 'N/A'))
+            with col2:
+                st.write("**Data:**", consulta.get('timestamp', 'N/A'))
+                st.write("**Coordenadas:**", consulta.get('coordenadas_encontradas', 'N/A'))
+
 def main():
     configurar_pagina()
     if 'analysis_result' not in st.session_state: st.session_state.analysis_result = None
-    
-    form_data = criar_formulario_completo(st.session_state.analysis_result['dados_projeto'] if st.session_state.analysis_result else None)
 
-    if form_data['analisar']:
-        try:
-            engine = AnalysisEngine()
-            st.session_state.analysis_result = engine.run_analysis(form_data)
-        except (ValueError, ConnectionError) as e:
-            st.error(f"❌ Erro na Análise: {e}")
-            st.session_state.analysis_result = None
-        except Exception:
-            st.error("Ocorreu um erro inesperado. Verifique os logs.")
-            logger.error("Erro inesperado na análise", exc_info=True)
-            st.session_state.analysis_result = None
+    # Interface principal com abas
+    st.title("🏗️ Assistente de Regulamentação Civil")
+    st.markdown("**Sistema de consulta de zoneamento urbano de Curitiba**")
 
+    # Criar abas
+    tab1, tab2, tab3 = st.tabs(["📍 Consulta por Endereço", "🗺️ Consulta por Coordenadas", "📊 Histórico"])
+
+    with tab1:
+        st.header("📍 Consulta por Endereço")
+        form_data = criar_formulario_endereco()
+
+        if form_data['analisar']:
+            try:
+                engine = AnalysisEngine()
+                st.session_state.analysis_result = engine.run_analysis(form_data)
+
+                # Salvar no histórico
+                if st.session_state.analysis_result and st.session_state.analysis_result.get('sucesso'):
+                    salvar_no_historico(st.session_state.analysis_result, tipo="endereco", endereco=form_data['endereco'])
+
+            except (ValueError, ConnectionError) as e:
+                st.error(f"❌ Erro na Análise: {e}")
+                st.session_state.analysis_result = None
+            except Exception:
+                st.error("Ocorreu um erro inesperado. Verifique os logs.")
+                logger.error("Erro inesperado na análise", exc_info=True)
+                st.session_state.analysis_result = None
+
+    with tab2:
+        st.header("🗺️ Consulta por Coordenadas")
+        coord_data = criar_formulario_coordenadas()
+
+        if coord_data['analisar']:
+            try:
+                engine = AnalysisEngine()
+                st.session_state.analysis_result = engine.run_analysis_by_coordinates(coord_data)
+
+                # Salvar no histórico
+                if st.session_state.analysis_result and st.session_state.analysis_result.get('sucesso'):
+                    coordenadas_str = f"{coord_data['latitude']:.6f}, {coord_data['longitude']:.6f}"
+                    salvar_no_historico(st.session_state.analysis_result, tipo="coordenadas", coordenadas=coordenadas_str)
+
+            except (ValueError, ConnectionError) as e:
+                st.error(f"❌ Erro na Análise: {e}")
+                st.session_state.analysis_result = None
+            except Exception:
+                st.error("Ocorreu um erro inesperado. Verifique os logs.")
+                logger.error("Erro inesperado na análise", exc_info=True)
+                st.session_state.analysis_result = None
+
+    with tab3:
+        st.header("📊 Histórico de Consultas")
+        exibir_historico()
+
+    # Exibir resultados se houver
     if st.session_state.analysis_result and st.session_state.analysis_result.get('sucesso'):
+        st.markdown("---")
         exibir_resultados(st.session_state.analysis_result)
-        if st.button("🔄 Nova Análise"):
+        if st.button("🔄 Nova Consulta"):
             st.session_state.analysis_result = None
             st.rerun()
-    else:
-        st.title("🏗️ Assistente Regulatório v8.2")
-        st.info("📋 Preencha o **Endereço Completo** para iniciar a análise geoespacial.")
 
 if __name__ == "__main__":
     main()
